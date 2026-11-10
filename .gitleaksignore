@@ -1,0 +1,4 @@
+# Test fixtures, not secrets. Commit f587634 added a fake JWT ({"alg":"HS256"}.{"sub":"1234"}) to
+# the redaction test; the test now assembles it at run time, but that commit stays in history.
+f587634f699480086f06866acc5457113f20183a:templates/persona-qa-dashboard/packages/api/src/phase2/__tests__/secrets-handling.test.ts:jwt:87
+f587634f699480086f06866acc5457113f20183a:templates/persona-qa-dashboard/packages/api/src/phase2/__tests__/secrets-handling.test.ts:jwt:91

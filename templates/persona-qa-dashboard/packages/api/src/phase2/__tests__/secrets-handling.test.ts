@@ -80,15 +80,19 @@ describe('runCliHelp runs the target CLI without the runtime secrets', () => {
   )
 })
 
+// A fake JWT ({"alg":"HS256"}.{"sub":"1234"}), assembled at run time so the source holds no JWT literal
+// for the secret scan to flag (gitleaks rule `jwt`; see .gitleaksignore for the commit that had one).
+const FAKE_JWT = ['eyJhbGciOiJIUzI1NiJ9', 'eyJzdWIiOiIxMjM0In0', 'c2lnbmF0dXJlLXZhbHVl'].join('.')
+
 describe('redaction by value', () => {
   it('redacts provider keys, tokens and env secret values inside strings', () => {
     const redacted = JSON.stringify(redactSecrets({
       stdoutPreview: `key=${FAKE_ANTHROPIC} gh=ghp_abcdefghijklmnopqrstuvwxyz0123456789 aws=AKIAIOSFODNN7EXAMPLE`,
-      body: 'token eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.c2lnbmF0dXJlLXZhbHVl and openai sk-proj-abcdefghijklmnopqrstuvwx',
+      body: `token ${FAKE_JWT} and openai sk-proj-abcdefghijklmnopqrstuvwx`,
       note: `password ${FAKE_PASSWORD} and literal-service-token-value-42`,
     }))
     for (const secret of [FAKE_ANTHROPIC, 'ghp_abcdefghijklmnopqrstuvwxyz0123456789', 'AKIAIOSFODNN7EXAMPLE',
-      'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.c2lnbmF0dXJlLXZhbHVl', 'sk-proj-abcdefghijklmnopqrstuvwx',
+      FAKE_JWT, 'sk-proj-abcdefghijklmnopqrstuvwx',
       FAKE_PASSWORD, 'literal-service-token-value-42']) {
       expect(redacted).not.toContain(secret)
     }
