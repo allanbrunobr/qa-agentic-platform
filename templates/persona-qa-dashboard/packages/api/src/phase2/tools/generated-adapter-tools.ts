@@ -366,14 +366,14 @@ function registerGeneratedFrontendTools(registry: ToolRegistry): void {
   ].filter((id): id is string => typeof id === 'string' && id.length > 0))
 
   for (const capabilityId of capabilityIds) {
-    const handler = frontendHandlerForCapability(capabilityId, generatedCapabilities)
-    if (!handler || registry.has(capabilityId)) continue
+    const selected = frontendHandlerForCapability(capabilityId, generatedCapabilities)
+    if (!selected || registry.has(capabilityId)) continue
 
-    registry.register(capabilityId, handler, metadata({
+    registry.register(capabilityId, selected.handler, metadata({
       name: capabilityId,
       description: `Execute generated browser capability ${capabilityId}`,
       requiresBrowser: true,
-      riskLevel: isReadOnlyFrontendCapability(capabilityId) ? 'read' : 'write',
+      riskLevel: selected.riskLevel,
       tags: ['generated-adapter', 'frontend', 'browser'],
     }))
   }
@@ -382,29 +382,31 @@ function registerGeneratedFrontendTools(registry: ToolRegistry): void {
 function frontendHandlerForCapability(
   capabilityId: string,
   generatedCapabilities: Array<{ id: string; routeHint?: string; purpose?: string; sourceHint?: string }>,
-): ToolHandler | null {
+): { handler: ToolHandler; riskLevel: 'read' | 'write' } | null {
+  // S-14: the risk belongs to the handler a capability gets. It used to come from words in the name,
+  // so "verifyCheckout" got the submit handler and riskLevel read.
   const capability = generatedCapabilities.find((item) => item.id === capabilityId)
   const normalizedId = capabilityId.toLowerCase()
   if (capabilityId === 'openPrimaryRoute' || normalizedId.includes('open') || normalizedId.includes('navigate')) {
-    return async (_input, context) => openPrimaryRouteHandler(capability, context)
+    return { riskLevel: 'read', handler: async (_input, context) => openPrimaryRouteHandler(capability, context) }
   }
   if (capabilityId === 'fillCustomerEmail' || normalizedId.includes('fill')) {
-    return async (input, context) => fillCustomerEmailHandler(input, capability, context)
+    return { riskLevel: 'write', handler: async (input, context) => fillCustomerEmailHandler(input, capability, context) }
   }
   if (capabilityId === 'addCartItem' || normalizedId.includes('add') || normalizedId.includes('cart')) {
-    return async (_input, context) => addCartItemHandler(capability, context)
+    return { riskLevel: 'write', handler: async (_input, context) => addCartItemHandler(capability, context) }
   }
   if (capabilityId === 'submitOrder' || normalizedId.includes('submit') || normalizedId.includes('checkout')) {
-    return async (_input, context) => submitOrderHandler(capability, context)
+    return { riskLevel: 'write', handler: async (_input, context) => submitOrderHandler(capability, context) }
   }
   if (capabilityId === 'captureScreenshot' || normalizedId.includes('screenshot')) {
-    return async (_input, context) => captureScreenshotHandler(capability, context)
+    return { riskLevel: 'read', handler: async (_input, context) => captureScreenshotHandler(capability, context) }
   }
   if (capabilityId === 'verifyPrimaryFeedback' || normalizedId.includes('verify') || normalizedId.includes('assert')) {
-    return async (_input, context) => verifyPrimaryFeedbackHandler(capability, context)
+    return { riskLevel: 'read', handler: async (_input, context) => verifyPrimaryFeedbackHandler(capability, context) }
   }
   if (capabilityId === 'interactWithPrimaryAction' || normalizedId.includes('click') || normalizedId.includes('interact')) {
-    return async (_input, context) => interactWithPrimaryActionHandler(capability, context)
+    return { riskLevel: 'write', handler: async (_input, context) => interactWithPrimaryActionHandler(capability, context) }
   }
   return null
 }
@@ -654,10 +656,6 @@ function buildCommandResult(
 
 function isBackendRouteHint(value: string): boolean {
   return /^\/?api(\/|$)/i.test(value)
-}
-
-function isReadOnlyFrontendCapability(capabilityId: string): boolean {
-  return /verify|assert|capture|screenshot|open|navigate/i.test(capabilityId)
 }
 
 function requirePage(value: unknown, signal?: AbortSignal): PageLike {
@@ -985,12 +983,35 @@ async function callEndpoint(endpointPath: string, context?: ToolContext): Promis
   const timer = setTimeout(() => controller.abort(), 8_000)
 
   try {
-    const response = await fetch(url, { signal: controller.signal })
+    // S-14: only the first URL was confined; fetch then followed redirects to any host. Redirects
+    // are followed by hand, at most 5, and only while they stay on the configured origin.
+    const allowedOrigin = new URL(baseUrl).origin
+    let currentUrl = url
+    let response = await fetch(currentUrl, { signal: controller.signal, redirect: 'manual' })
+    for (let hops = 0; response.status >= 300 && response.status < 400 && response.headers.get('location'); hops += 1) {
+      const next = new URL(response.headers.get('location')!, currentUrl)
+      if (next.origin !== allowedOrigin || hops >= 5) {
+        await response.body?.cancel()
+        return {
+          executed: false,
+          mode: 'refused',
+          url: currentUrl,
+          endpointPath,
+          status: response.status,
+          reason: next.origin !== allowedOrigin
+            ? 'Redirect leaves the configured origin; it was not followed.'
+            : 'Too many redirects.',
+        }
+      }
+      await response.body?.cancel()
+      currentUrl = next.toString()
+      response = await fetch(currentUrl, { signal: controller.signal, redirect: 'manual' })
+    }
     const body = await response.text()
     return {
       executed: true,
       mode: 'http',
-      url,
+      url: currentUrl,
       endpointPath,
       status: response.status,
       ok: response.ok,

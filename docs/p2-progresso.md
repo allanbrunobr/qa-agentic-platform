@@ -926,3 +926,17 @@ ser removidos à mão.
 carregando tudo. Paginar exige mudar o contrato dessas rotas.
 
 **Verificação:** `typecheck` 0; `npm test` 0 (API 473, rotas `node:test` 27, web 121); `verify:release` 0; `test:e2e` 0.
+
+## S-14 · Achados menores de segurança — 3 de 5 feitos, 1 já resolvido, 1 fora do escopo
+
+| Item | Situação |
+|---|---|
+| `POST /api/personas` apagava as personas existentes se o arquivo não validasse | **Feito.** Arquivo ilegível ou inválido → `409 personas_file_unreadable`, sem escrever. Teste: arquivo inválido intacto depois do POST. Antes: 201 e arquivo sobrescrito. A parte "delimitar o `goal` no prompt" não foi feita |
+| Risco das ferramentas geradas classificado por regex no nome | **Feito.** O risco vem junto com o handler escolhido (`frontendHandlerForCapability` devolve `{ handler, riskLevel }`). `isReadOnlyFrontendCapability` saiu. Teste: `verifyCheckout`, que recebe o handler de submit, agora é `write`. Antes: `read` |
+| `fetch` seguia redirect para qualquer host | **Feito.** `redirect: 'manual'`; o redirect só é seguido (no máximo 5 saltos) enquanto fica na origem configurada; fora dela, `mode: 'refused'`. Teste com dois servidores locais: o de fora não recebe nada, e um redirect na mesma origem continua funcionando. Antes: o servidor de fora recebeu `/latest/meta-data` |
+| Snapshot de `integration-test/…` seguindo symlink | **Já resolvido no S-02.** A cópia usa `copyTreeFromRepo` (`ConfinedLocalFs`), que não segue symlink de origem nem de destino |
+| Actions do CI fixadas por tag e não por SHA | **Fora do escopo:** exige mexer em `.github/`. Fica para o Allan |
+
+Testes em `phase2/__tests__/minor-security.test.ts`; os 3 casos falharam antes das correções.
+
+**Verificação:** `typecheck` 0; `npm test` 0 (API 476, rotas `node:test` 27, web 121); `verify:release` 0; `test:e2e` 0.

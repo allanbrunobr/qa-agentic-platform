@@ -117,7 +117,17 @@ export async function personasRoutes(app: FastifyInstance): Promise<void> {
     const { name, role, description, modules } = parseResult.data;
     const id = normalizeId(role || name);
     const filePath = (await firstExistingFile(getAdapterPersonasCandidates())) ?? getWritableAdapterPersonasFile();
-    const existing = (await readAdapterPersonas().catch(() => ({ personas: [] as AdapterPersona[] }))).personas;
+    // S-14: an unreadable or invalid personas file used to read as "no personas", and the write below
+    // then replaced every existing persona with the new one. Refuse instead of overwriting.
+    let existing: AdapterPersona[];
+    try {
+      existing = (await readAdapterPersonas()).personas;
+    } catch (error) {
+      return reply.status(409).send({
+        error: 'personas_file_unreadable',
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
 
     if (existing.some((persona) => persona.id === id)) {
       return reply.status(409).send({ error: `Persona "${id}" already exists` });
