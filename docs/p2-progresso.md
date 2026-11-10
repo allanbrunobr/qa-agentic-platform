@@ -970,3 +970,45 @@ Testes em `phase2/__tests__/minor-security.test.ts`; os 3 casos falharam antes d
   M-03.
 
 **Verificação:** `typecheck` 0; `npm test` 0 (`verify-env-docs` no `test:unit`: 79 lidas, 79 documentadas; API 476, rotas `node:test` 27, web 121); `verify:release` 0; `test:e2e` 0.
+
+## M-02 · Documentação que dizia coisas que o código não faz — feito
+
+- Os trechos citados no relatório já tinham sido corrigidos junto de cada item: `SECURITY.md`
+  (S-01), `docs/architecture.md` (B-05) e a saída do estado `restricted` (B-01b). Desta vez:
+  - `docs/generated-files.md`: saiu "o instalador remenda alguns arquivos" (falso desde o A-02);
+    o metadata registra `templateVersion` e é preservado pelo `discover-local` (B-10); uma chave
+    recusada interrompe a instalação antes de qualquer escrita (B-10);
+  - `docs/architecture.md`: migrações versionadas por componente (A-03) e o teste de conformidade
+    dos dois avaliadores (A-01);
+  - `CHANGELOG.md`: seção `[Unreleased]` com tudo o que foi feito (Security, Fixed, Changed), com os
+    ids do relatório.
+
+**Verificação:** `typecheck` 0; `npm test` 0 (API 476, rotas `node:test` 27, web 121); `verify:release` 0; `test:e2e` 0.
+
+# Não feito e decisões para o Allan
+
+## P3 deixados como recomendação
+
+| Item | Por que não foi feito aqui |
+|---|---|
+| A-04 · Modelo legado (rotas `/api/runs`, `/api/scenarios`, `/api/findings`, `/api/sync`; 5 páginas inalcançáveis; `POST /api/runs` dispara `pnpm test:persona-qa`) | É remoção de superfície do produto, cerca de 1.600 linhas no web mais rotas e serviços. Antes, é preciso confirmar que nenhum consumidor fora do dashboard usa essas rotas. O `/api/stats` da Overview ainda lê tabelas do modelo legado (`runs`), então a remoção não é só apagar. Recomendo uma PR própria |
+| A-05 · Arquivos-deus | Refatoração ampla (`session-service.ts` tem cerca de 2.900 linhas). Melhor depois do A-04, que já remove parte do código |
+| M-03 · Nomes antigos (`persona-qa`, `phase2`/`p2`, `PERSONA_QA_*`) | Renomear rotas e variáveis quebra instalações existentes; pede aliases por uma versão, como o relatório sugere, e combina com o A-04. A tabela do M-01 mostra o tamanho: 26 variáveis `PERSONA_QA_*`/`PHASE2_*`, e dois nomes para o diretório de adapters |
+| T-08 · Lint e formatação | A escolha da ferramenta (Biome ou ESLint) é do Allan. Há uma interação com o hook de push: o `ci-ok.sh` hoje bloqueia por falta de um script `lint` (ver a memória "ci-ok.sh vs qa-agentic-platform"). Acrescentar `lint` mudaria o que o hook deixa passar, então não deve ser feito só para destravar o push |
+
+## Decisões que ficaram com o Allan
+
+1. **Push e PR.** Nada foi enviado. As duas branches locais:
+   - `analise-qa-agentic` (P1), parada em `98aecb3`;
+   - `p2-correcoes` (P2 e P3), a partir de `98aecb3`.
+   O push continua bloqueado pelo `ci-ok.sh` (`npm run lint` inexistente).
+2. **A-01:** qual avaliador de contrato é a fonte da verdade (core ou runtime). As divergências estão
+   fixadas no teste de conformidade.
+3. **A-03:** o comando `upgrade-local` e o que um upgrade pode sobrescrever.
+4. **B-10:** se uma reinstalação bem-sucedida deve preservar variáveis do usuário no `.env.local`.
+5. **S-12:** ligar `npm run audit:deps` ao CI e fixar as actions por SHA (S-14). As duas coisas
+   exigem mexer em `.github/`.
+6. **T-05:** um piso de cobertura, quando houver uma série de medições.
+7. **T-07:** o diretório temporário desta máquina tem cerca de 245 diretórios `agentic-platform-*`
+   (11 GB), muitos das rodadas deste trabalho. Não apaguei porque fica fora do repositório.
+8. **Rotação de credenciais:** nenhuma credencial foi usada ou tocada neste trabalho.

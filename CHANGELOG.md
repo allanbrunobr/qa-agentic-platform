@@ -5,6 +5,56 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Until 1.0, minor versions can
 contain breaking changes.
 
+## [Unreleased]
+
+Changes from the review in `docs/analise-20261109.md`. Item ids (S-, B-, T-, A-, M-) refer to it.
+
+### Security
+
+- The installed runtime API requires a local token on every request and refuses a foreign `Host` or
+  `Origin` before any route runs, including the WebSocket upgrade (S-01). The control plane checks
+  `Host` and `Origin` too (S-15).
+- Discovery and install refuse symlinks inside `.agentic-qa` and read repository folders without
+  following them, with size and count limits (S-02, S-10). The class-label check runs in linear time
+  (S-09), and generated capability stubs embed names safely (S-11).
+- Secrets stay out of the target CLI environment, tool output and session events (S-03, S-06).
+- Tool output reaches the model fenced as untrusted data; a step whose capability has no tool fails
+  instead of getting every tool (S-04, S-05).
+- The QA browser stays on the run target, and screenshot reads are confined (S-07, S-08).
+- Untrusted repository content is wrapped in nonce-matched markers the content cannot forge (S-13).
+- Generated API calls follow redirects only on the configured origin; generated browser tools take
+  their risk level from the handler they get; `POST /api/personas` no longer overwrites an unreadable
+  personas file (S-14).
+- Dependencies: `zod` 4.6.7 and `drizzle-orm` 0.45.4, plus the in-range security updates; `npm run
+  audit:deps` reports no high finding (S-12).
+
+### Fixed
+
+- A step that recovers on retry is no longer a contract violation, and a restricted scenario can be
+  reset (`POST /api/p2/scenarios/:scenarioId/quality-gate/reset`) (B-01).
+- Runs use the URL they were given as their target (B-02).
+- Truncated, refused or incomplete model answers and steps with no successful tool call fail the
+  step (B-03); agents can report findings with evidence (B-04); `AGENTIC.md` is found (B-05).
+- A step that ends cancels its tool and model call (B-06).
+- Sessions interrupted by a crash or shutdown are closed as failed; retries honour `maxRetries`
+  (B-07, B-08).
+- `addEvent` no longer reloads the whole session; invalid stored JSON no longer breaks reads (B-09).
+- Contract step timeouts are honoured; a tool batch runs to the end; a refused install writes
+  nothing; `discover-local` keeps the install metadata (B-10).
+- The control-plane engine records the capability a step actually executed (B-11).
+
+### Changed
+
+- Runtime databases have versioned migrations that also adopt databases from older installs; the
+  install metadata records `templateVersion` (A-03).
+- The installer copies the runtime source exactly as the template has it (A-02).
+- The release gate never reads, validates or copies a developer's provider key, and removes its
+  temp fixtures (T-06, T-07).
+- Tests: runtime tests are type-checked; coverage is measured (`npm run test:coverage`); the risk
+  policy, hardening and boundary tests check behaviour instead of strings (T-01 to T-05).
+- `docs/environment-variables.md` lists every variable the code reads; `npm run verify:env-docs`
+  enforces it (M-01).
+
 ## [0.1.0] - 2026-10-22
 
 First public release (alpha).

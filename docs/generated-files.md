@@ -15,13 +15,13 @@ Source: `packages/dashboard-api/src/services/local-package-installer.ts`.
 | --- | --- | --- |
 | `AGENTIC.md`, `README.md` | Runtime agent rules (loaded as the global prompt layer) and the runtime README. | Rarely. `AGENTIC.md` changes agent behavior for every run. |
 | `package.json`, `package-lock.json`, `.npmrc` | Runtime package manifest. The installer sets `engines.node` to `>=22.5.0` and `legacy-peer-deps=true`. | No |
-| `packages/api/` | Fastify API and phase 2 runtime source (`src/`, `package.json`, `tsconfig.json`, `drizzle.config.ts`). The installer patches a few source files for the host-local layout. | No. Change the template in this repository instead. |
+| `packages/api/` | Fastify API and phase 2 runtime source (`src/`, `package.json`, `tsconfig.json`, `drizzle.config.ts`). Installed exactly as in the template; a regression test compares the installed source with the template byte for byte. | No. Change the template in this repository instead. |
 | `packages/web/` | React dashboard source. | No |
 | `vendor/better-sqlite3-shim/` | Small `better-sqlite3`-compatible shim over Node's built-in `node:sqlite`, so the runtime needs no native build. | No |
 | `scripts/start-local-dashboard.generated.sh` | Launcher. Installs dependencies on first run, installs Playwright Chromium for frontend repositories, loads `.env.local`, starts the API on `127.0.0.1` and the dashboard. Defaults: API port `3201`, web port `5176` (`--api-port`, `--web-port`). | No |
-| `adapter/config/install-metadata.generated.json` | Install time, template source, mode (`host-local-runtime`), ports, and the result of API key validation. Contains no secret. | No |
+| `adapter/config/install-metadata.generated.json` | Install time, template version (`templateVersion`) and source, mode (`host-local-runtime`), ports, and the result of API key validation. Contains no secret. `discover-local` keeps it. | No |
 | `.env.example` | Empty `ANTHROPIC_API_KEY=` and `OPENAI_API_KEY=` entries. | Copy to `.env.local` if you want to set keys by hand. |
-| `.env.local` | Written only if the installer resolved a provider key, with file mode `0600`. **Contains a secret.** | Yes, but never commit it. |
+| `.env.local` | Written only if the installer resolved a provider key, with file mode `0600`. A key with unsafe characters stops the install before anything is written, leaving an existing `.env.local` as it was. **Contains a secret.** | Yes, but never commit it. |
 | `.gitignore` | Ignores `.env.local`, `node_modules/`, `data/`, SQLite files, `packages/web/dist/`, and `packages/api/artifacts/`, so the host repository can commit `.agentic-qa/` without secrets or local state. | Optional |
 | `docs/README.md` | Short generated note about the installed runtime. | Optional |
 | `adapter/<area>/`, `data/`, `packages/api/artifacts/` | Empty directories that discovery and the runtime fill. | — |
