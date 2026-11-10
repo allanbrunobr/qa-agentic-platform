@@ -409,3 +409,26 @@ checagens:
 
 **Limite conhecido:** uma ação de Playwright já em andamento quando o passo termina (um `fill` em
 espera, por exemplo) não é interrompida no meio; o que o passo impede é a próxima ação.
+
+## T-01 · Testes de política de risco que não distinguiam bloquear de executar — feito
+
+**O que mudou** (só teste; o runtime já bloqueava)
+
+- `story-1.3-risk-aware-tool-policy.test.ts`: os handlers passam a ser espiões que registram cada
+  execução real.
+- "runs a read tool and refuses a destructive one…": o modelo pede `readData` e depois `deleteAll`.
+  O teste afirma que só `readData` executou, que há um `tool_result` de `deleteAll` com
+  `tool_not_allowed` e que `deleteAll` não foi oferecido.
+- "refuses a write tool that requires approval…": o modelo agora pede de fato `writeData`. A
+  política põe `write` em `allowedRiskLevels` e em `requireApprovalFor`, para que só a regra de
+  aprovação possa barrar. O teste afirma que nada executou e que houve `tool_not_allowed`.
+
+**Medição do instrumento**
+
+| Mutação no `agent-runtime.ts` | Teste antigo | Teste novo |
+|---|---|---|
+| Execução sem checar a política (`isToolAllowed` → `true`) | passa | falha (2 casos) |
+| Sem a regra `requireApprovalFor` | passa | falha |
+| Sem a regra `denyRiskLevels` | falha ("deny takes precedence") | falha |
+
+**Verificação:** `typecheck` 0; `npm test` 0 (API 458, web 120); `verify:release` 0; `test:e2e` 0.
