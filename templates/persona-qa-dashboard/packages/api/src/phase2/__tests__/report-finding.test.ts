@@ -284,7 +284,12 @@ describe('reportFinding', () => {
   // with the same check and reports pageBlank; a screenshot policy accepts a snippet whose page was
   // blank when it was read. The order of calls does not matter, the page's state does. Uses the real
   // evidence handlers; `openHome` renders the page (and fails, so the step does not end).
-  async function runOnBlankPage(firstCalls: ModelResponse[]) {
+  // `startUrl` is the page's URL until openHome runs; `pickEvidence` picks, from the artifactIds the
+  // model was shown, the ones it reports (the last one by default).
+  async function runOnBlankPage(
+    firstCalls: ModelResponse[],
+    { startUrl = 'http://127.0.0.1:8080/', pickEvidence = (ids: string[]) => ids.slice(-1) }: { startUrl?: string; pickEvidence?: (ids: string[]) => string[] } = {},
+  ) {
     const registry = new ToolRegistry()
     const sessionService = createSessionServiceStub()
     let rendered = false
@@ -303,7 +308,7 @@ describe('reportFinding', () => {
       if (turn < firstCalls.length) return firstCalls[turn]!
       if (turn === firstCalls.length) {
         const ids = [...messages.map((message) => message.content).join('\n').matchAll(/"artifactId":"([^"]+)"/g)].map((match) => match[1]!)
-        return call('c', 'reportFinding', { ...finding(ids.slice(-1)), title: 'Home page renders a white screen' })
+        return call('c', 'reportFinding', { ...finding(pickEvidence(ids)), title: 'Home page renders a white screen' })
       }
       return end
     })
@@ -311,7 +316,7 @@ describe('reportFinding', () => {
     runtime.registerAgent({ ...profile(true), toolPolicy: { browserAccess: true, allowedTools: ['openHome'] } })
     // Until openHome runs, the white screen of a broken SPA: no text and no visible element.
     const page = {
-      url: () => 'http://127.0.0.1:8080/',
+      url: () => (rendered ? 'http://127.0.0.1:8080/' : startUrl),
       evaluate: async () => rendered,
       screenshot: async () => Buffer.from('png'),
       locator: () => ({ innerHTML: async () => (rendered ? '<main>cart</main>' : '<div id="root"></div>') }),
@@ -369,6 +374,21 @@ describe('reportFinding', () => {
       call('d', 'collectDomSnippet', { selector: 'body', description: 'cart' }),
     ])
     expect(toolResults(sessionService, sessionId, 'captureScreenshot')[0]).toEqual(expect.objectContaining({ ok: true }))
+    expect(toolResults(sessionService, sessionId, 'reportFinding')[0]).toEqual(refusedFinding)
+    expect(recorded(sessionService, sessionId)).toEqual([])
+    expect(result.findings).toEqual([])
+  })
+
+  // Tenth pre-PR run, #2: before the first navigation the page is about:blank, which is blank too. A
+  // snippet of it says nothing about the application, so it does not stand in for a screenshot.
+  it('refuses a DOM snippet of about:blank, taken before the page was opened', async () => {
+    const { result, sessionService, sessionId } = await runOnBlankPage([
+      call('d', 'collectDomSnippet', { selector: 'body', description: 'before navigation' }),
+      call('n', 'openHome'),
+      call('s', 'captureScreenshot', { description: 'rendered page' }),
+    ], { startUrl: 'about:blank', pickEvidence: (ids) => ids.slice(0, 1) })
+    const snippet = toolResults(sessionService, sessionId, 'collectDomSnippet')[0] as { ok?: boolean; output?: Record<string, unknown> }
+    expect(snippet.output).toEqual(expect.objectContaining({ pageBlank: true, navigated: false }))
     expect(toolResults(sessionService, sessionId, 'reportFinding')[0]).toEqual(refusedFinding)
     expect(recorded(sessionService, sessionId)).toEqual([])
     expect(result.findings).toEqual([])

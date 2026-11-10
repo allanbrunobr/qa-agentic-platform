@@ -45,7 +45,7 @@ export const reportFindingMetadata: ToolMetadata = {
   description: 'Record a defect you observed in the application under test. Describe what was expected and what happened. '
     + 'To attach evidence, call captureScreenshot or collectDomSnippet in an earlier response than this one and pass the artifactId it returned '
     + 'in evidenceArtifactIds: an id exists only after that tool has run. If your evidence policy requires a screenshot, it must be a captureScreenshot id, '
-    + 'unless the page is blank (captureScreenshot refuses it): then pass the id of a collectDomSnippet whose result says pageBlank: true. '
+    + 'unless the page is blank (captureScreenshot refuses it): then pass the id of a collectDomSnippet whose result says pageBlank: true and navigated: true. '
     + 'The step ends as soon as its action produces the step artifacts, '
     + 'so report a defect before that action, or in the same response as it. '
     + 'In that same response a refusal does not reach you: the step ends and the finding is lost, so attach the evidence id first.',

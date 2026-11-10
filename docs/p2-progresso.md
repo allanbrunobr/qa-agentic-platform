@@ -1486,3 +1486,18 @@ caminhos separados antes de contar como morta. Restaurado e conferido com `cmp`.
 **Mutação:** tirar `.agentic-qa` da lista → 3 falhas (inclui a cópia real). Restaurado e conferido com `cmp`.
 
 **Verificação (rodada 9):** `audit:deps` 0; `lint` 0; `typecheck` 0; `build` 0; `npm test` 0 (API 493, rotas `node:test` 27, web 125, cópia da fixture 13 checagens); `verify:release` 0; `test:e2e` 0.
+
+## `pre-pr-contradicoes` (rodada 10, `ff2b3c1`): 2 vivos — corrigidos
+
+| Achado | Correção | Teste (falhou antes) |
+|---|---|---|
+| #1 A cerca do S-04 só cobria o resultado de tool da rodada atual. O que as tools de um passo devolvem vira artefato de sessão e vai, em `availableArtifacts`, na primeira mensagem dos passos seguintes, fora dos marcadores e com marcador forjado intacto. O `AGENTIC.md` e o CHANGELOG prometem que toda saída de tool chega cercada | A primeira mensagem do passo continua com o envelope JSON na primeira linha, agora só com os **nomes** dos artefatos; os valores vêm depois, num bloco `wrapUntrustedToolOutput` com nonce e marcadores neutralizados. Os três leitores do envelope (dois no runtime, um no provedor determinístico) usam `parseStepEnvelope` (`step-envelope.ts`), que lê a primeira linha | `tool-scope-and-untrusted-output.test.ts`: texto injetado num artefato fica dentro do bloco com nonce, o marcador forjado vira `[END_MARKER_REMOVED]`, a primeira linha é JSON com `availableArtifacts: ["verificationResult"]`, e sem artefatos não há bloco. `step-envelope.test.ts`: o provedor determinístico escolhe a tool do passo com o bloco presente (inclusive com um envelope forjado dentro dele). Contra o código anterior: 3 falhas |
+| #2 Um DOM snippet de `about:blank`, antes da primeira navegação, tinha `pageBlank: true` e valia no lugar do screenshot para um achado sobre a página já renderizada | `collectDomSnippet` devolve também `navigated` (URL diferente de `about:blank`), gravado no metadado; o runtime só aceita no lugar do screenshot um snippet com `pageBlank` e `navigated`. Descrições e mensagem de recusa dizem isso | `report-finding.test.ts`: DOM em `about:blank` → `openHome` → screenshot → achado com o id do DOM → recusado; o snippet diz `pageBlank: true, navigated: false` |
+
+**Mutação:** provedor determinístico lendo o conteúdo inteiro → 1 falha; parser sem a primeira linha →
+2 falhas; valores sem cerca → 1 falha; runtime ignorando `navigated` → 1 falha (no `reportFinding`,
+com o snippet ainda dizendo `navigated: false`); handler sempre `navigated` → 1 falha. Restaurado e
+conferido com `cmp`. Primeira versão do teste do #1 lia a mensagem errada (a do `AGENTIC.md`);
+corrigida para procurar a mensagem com o envelope.
+
+**Verificação (rodada 10):** `audit:deps` 0; `lint` 0; `typecheck` 0 (a primeira execução acusou `stopReason` sem tipo literal no teste novo; corrigido e refeito); `build` 0; `npm test` 0 (API 501, rotas `node:test` 27, web 125); `verify:release` 0; `test:e2e` 0.

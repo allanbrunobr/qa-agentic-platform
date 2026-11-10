@@ -8,7 +8,7 @@ import path from 'node:path'
 import type { ToolHandler, ToolMetadata, ToolContext, ToolResult } from '../types/tool-types.js'
 import type { ToolRegistry } from '../services/tool-registry.js'
 import { resolvePhase2ArtifactPath, type SessionService } from '../services/session-service.js'
-import { hasRenderablePageContent, type EvidencePage } from './browser-page-evidence.js'
+import { getEvidencePageUrl, hasRenderablePageContent, type EvidencePage } from './browser-page-evidence.js'
 
 // --- captureScreenshot ---
 
@@ -128,6 +128,8 @@ export function makeCollectDomSnippetHandler(sessionService: SessionService): To
       // Measured with the same check captureScreenshot uses to refuse a page. A snippet of a blank
       // page is the only evidence a white screen can have, so a screenshot evidence policy accepts it.
       const pageBlank = !(await hasRenderablePageContent(page))
+      // about:blank, before the first navigation, is blank too but shows nothing of the application.
+      const navigated = getEvidencePageUrl(page) !== 'about:blank'
       const abortedAfterRead = stepAborted(context)
       if (abortedAfterRead) return abortedAfterRead
 
@@ -136,10 +138,10 @@ export function makeCollectDomSnippetHandler(sessionService: SessionService): To
         agentRole: context.agentRole ?? 'unknown',
         description,
         content: html,
-        metadata: { selector, pageBlank },
+        metadata: { selector, pageBlank, navigated },
       })
 
-      return { ok: true, output: { artifactId: artifact.id, selector, htmlLength: html.length, pageBlank } }
+      return { ok: true, output: { artifactId: artifact.id, selector, htmlLength: html.length, pageBlank, navigated } }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       return { ok: false, error: { code: 'dom_snippet_error', message, retryable: true } }
@@ -150,7 +152,8 @@ export function makeCollectDomSnippetHandler(sessionService: SessionService): To
 export const collectDomSnippetMetadata: ToolMetadata = {
   name: 'collectDomSnippet',
   description: 'Capture a DOM fragment as evidence of page state. The result says pageBlank: true when the page has no renderable '
-    + 'content (captureScreenshot refuses such a page); a snippet with pageBlank: true can stand in for a screenshot as finding evidence.',
+    + 'content (captureScreenshot refuses such a page), and navigated: false while the page is still about:blank. '
+    + 'A snippet with pageBlank: true and navigated: true (the application rendered a blank page) can stand in for a screenshot as finding evidence.',
   inputSchema: {
     type: 'object',
     properties: {

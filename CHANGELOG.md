@@ -18,8 +18,8 @@ Changes from the review in `docs/analise-20261109.md`. Item ids (S-, B-, T-, A-,
   following them, with size and count limits (S-02, S-10). The class-label check runs in linear time
   (S-09), and generated capability stubs embed names safely (S-11).
 - Secrets stay out of the target CLI environment, tool output and session events (S-03, S-06).
-- Tool output reaches the model fenced as untrusted data; a step whose capability has no tool fails
-  instead of getting every tool (S-04, S-05).
+- Tool output reaches the model fenced as untrusted data, including the artifacts earlier steps
+  produced; a step whose capability has no tool fails instead of getting every tool (S-04, S-05).
 - The QA browser stays on the run target, and screenshot reads are confined (S-07, S-08).
 - Untrusted repository content is wrapped in nonce-matched markers the content cannot forge (S-13).
 - Generated API calls follow redirects only on the configured origin; generated browser tools take
@@ -45,7 +45,7 @@ Changes from the review in `docs/analise-20261109.md`. Item ids (S-, B-, T-, A-,
   opens the step again, so what a retry executed counts for its step, as in the runtime.
 - Screenshots taken under the launcher (`.agentic-qa/artifacts/`) are gitignored. A finding about a
   page `captureScreenshot` refuses as blank can use a DOM snippet taken while it is blank
-  (`collectDomSnippet` reports `pageBlank`). A finding
+  (`collectDomSnippet` reports `pageBlank`, and `about:blank` before the first navigation does not count). A finding
   refused in the response that ends its step is recorded as an error event and shown in the agent
   conversation, instead of disappearing. The dashboard's observed step order lists a retried step
   once.

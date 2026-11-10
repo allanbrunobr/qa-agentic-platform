@@ -12,6 +12,7 @@ import type {
 } from '../types/agent-types.js'
 import type { ScenarioStep } from '../types/scenario-types.js'
 import type { ExecutionTarget, ToolContext, ToolResult } from '../types/tool-types.js'
+import { parseStepEnvelope } from './step-envelope.js'
 import { REPORT_FINDING_TOOL, type ReportedFinding } from '../tools/finding-tools.js'
 import { STEP_SUPPORT_TOOLS } from './step-support-tools.js'
 import { COMPOSITE_CAPABILITY_TOOLS } from './composite-capabilities.js'
@@ -54,6 +55,24 @@ export function wrapUntrustedToolOutput(content: string): string {
   ].join('\n')
 }
 
+/**
+ * A step's first message: the JSON envelope on the first line, with the names of the artifacts earlier
+ * steps produced, then their values in an untrusted-data block. Those values are tool output copied
+ * into the session (page text, API bodies), so they get the same fence as a tool result (S-04; tenth
+ * pre-PR run, #1).
+ */
+function buildStepMessage(step: ScenarioStep, availableArtifacts: Record<string, unknown>, instructions: unknown): string {
+  const envelope = JSON.stringify({
+    scenarioStep: step.id,
+    description: step.description ?? step.name,
+    requiredArtifacts: step.requiredArtifacts,
+    producedArtifacts: step.producedArtifacts,
+    availableArtifacts: Object.keys(availableArtifacts),
+    instructions,
+  })
+  if (Object.keys(availableArtifacts).length === 0) return envelope
+  return `${envelope}\n\n${wrapUntrustedToolOutput(`Values of availableArtifacts, produced by earlier steps:\n${JSON.stringify(availableArtifacts, null, 2)}`)}`
+}
 
 function describeIncompleteStop(stopReason: string | undefined): string | null {
   if (stopReason === 'max_tokens') return 'Model output was truncated (max_tokens) before the step finished'
@@ -79,7 +98,7 @@ const REPO_ROOT = path.resolve(__dirname, '../../../../../..')
 /** Evidence ids, per kind, that a screenshot evidence policy accepts in the current step. */
 interface ScreenshotPolicyEvidence {
   screenshots: string[]
-  /** collectDomSnippet ids whose page had no renderable content when it was read (pageBlank). */
+  /** collectDomSnippet ids of an application page with no renderable content when read (pageBlank, navigated). */
   blankPageSnippets: string[]
 }
 
@@ -227,14 +246,7 @@ export class AgentRuntime {
         sessionId: String(context['sessionId'] ?? 'orchestrator-session'),
         messages: [{
           role: 'user',
-          content: JSON.stringify({
-            scenarioStep: step.id,
-            description: step.description ?? step.name,
-            requiredArtifacts: step.requiredArtifacts,
-            producedArtifacts: step.producedArtifacts,
-            availableArtifacts,
-            instructions: runtimeInstructions,
-          }),
+          content: buildStepMessage(step, availableArtifacts, runtimeInstructions),
         }],
         page: context['page'],
         executionTarget: asExecutionTarget(context['executionTarget']),
@@ -621,7 +633,8 @@ export class AgentRuntime {
             if (toolCall.name === 'captureScreenshot') screenshotPolicyEvidence.screenshots.push(String(output.artifactId))
             // collectDomSnippet measures the page when it reads it, with captureScreenshot's own check.
             // The order of calls does not matter: the page's state at the snippet does.
-            if (toolCall.name === 'collectDomSnippet' && output.pageBlank === true) {
+            // about:blank before the first navigation is blank but is not the application (navigated).
+            if (toolCall.name === 'collectDomSnippet' && output.pageBlank === true && output.navigated === true) {
               screenshotPolicyEvidence.blankPageSnippets.push(String(output.artifactId))
             }
           }
@@ -942,15 +955,12 @@ export class AgentRuntime {
     for (const message of messages) {
       if (message.role !== 'user') continue
 
-      try {
-        const parsed = JSON.parse(message.content)
-        const producedArtifacts = Array.isArray(parsed?.producedArtifacts) ? parsed.producedArtifacts : []
-        const requiredArtifacts = Array.isArray(parsed?.requiredArtifacts) ? parsed.requiredArtifacts : []
-        const artifacts = producedArtifacts.length > 0 ? producedArtifacts : requiredArtifacts
-        return artifacts.filter((item: unknown): item is string => typeof item === 'string' && item.length > 0)
-      } catch {
-        continue
-      }
+      const parsed = parseStepEnvelope(message.content)
+      if (!parsed) continue
+      const producedArtifacts: unknown[] = Array.isArray(parsed['producedArtifacts']) ? parsed['producedArtifacts'] : []
+      const requiredArtifacts: unknown[] = Array.isArray(parsed['requiredArtifacts']) ? parsed['requiredArtifacts'] : []
+      const artifacts = producedArtifacts.length > 0 ? producedArtifacts : requiredArtifacts
+      return artifacts.filter((item: unknown): item is string => typeof item === 'string' && item.length > 0)
     }
 
     return []
@@ -960,14 +970,10 @@ export class AgentRuntime {
     for (const message of messages) {
       if (message.role !== 'user') continue
 
-      try {
-        const parsed = JSON.parse(message.content)
-        return typeof parsed?.scenarioStep === 'string' && parsed.scenarioStep.length > 0
-          ? parsed.scenarioStep
-          : undefined
-      } catch {
-        continue
-      }
+      const parsed = parseStepEnvelope(message.content)
+      if (!parsed) continue
+      const scenarioStep = parsed['scenarioStep']
+      return typeof scenarioStep === 'string' && scenarioStep.length > 0 ? scenarioStep : undefined
     }
 
     return undefined
@@ -1057,7 +1063,7 @@ export class AgentRuntime {
 
     const evidence = finding.evidenceArtifactIds.filter((id) => collectedEvidence.includes(id))
     // A screenshot policy is met by a screenshot of this step. A DOM snippet alone does not count,
-    // unless the page was blank when the snippet read it (pageBlank): then it is the only evidence.
+    // unless the application's page was blank when the snippet read it (pageBlank, navigated): then it is the only evidence.
     const meetsScreenshotPolicy = evidence.some((id) => screenshotPolicyEvidence.screenshots.includes(id)
       || screenshotPolicyEvidence.blankPageSnippets.includes(id))
     if (profile.evidencePolicy.requireScreenshotForFinding && !meetsScreenshotPolicy) {
@@ -1066,7 +1072,7 @@ export class AgentRuntime {
         error: {
           code: 'finding_without_evidence',
           message: 'This agent must attach evidence to findings: call captureScreenshot in this step and pass the returned artifactId in evidenceArtifactIds. '
-            + 'If the page is blank (captureScreenshot refuses it), call collectDomSnippet now and pass its artifactId: a snippet whose result says pageBlank: true counts instead.',
+            + 'If the page is blank (captureScreenshot refuses it), call collectDomSnippet now and pass its artifactId: a snippet whose result says pageBlank: true and navigated: true counts instead.',
           retryable: true,
         },
       }
