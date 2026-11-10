@@ -145,6 +145,24 @@ describe('reportFinding', () => {
     expect(sessionService.getSession(sessionId)?.findings[0]?.evidence).toEqual(['shot-1'])
   })
 
+  // Second pre-PR run, finding #3: support tools are offered in every step, so their output
+  // (artifactId, filePath, sizeBytes, selector, htmlLength) must not become the step's output.
+  it('does not turn the output of a support tool into step output', async () => {
+    const { runtime, sessionId } = setup([
+      call('b', 'captureScreenshot', { description: 'before' }), call('a', 'submitOrder'), end,
+    ])
+    const result = await runtime.executeStep('shopper', STEP, { sessionId })
+    expect(result.output).toEqual({ orderSubmitted: true })
+  })
+
+  it('still counts a support tool output that carries an artifact the step declares', async () => {
+    const { runtime, sessionId } = setup([call('b', 'captureScreenshot', { description: 'proof' }), end], false)
+    const screenshotStep = { ...STEP, id: 'proof', capabilityId: 'captureScreenshot', producedArtifacts: ['artifactId'] }
+    const result = await runtime.executeStep('shopper', screenshotStep, { sessionId })
+    expect(result.status).toBe('completed')
+    expect(result.output).toEqual({ artifactId: 'shot-1' })
+  })
+
   it('is registered by the runtime bootstrap', () => {
     const runtime = createPhase2Runtime({ deterministic: true, dbPath: ':memory:' } as never)
     expect(runtime.toolRegistry.has('reportFinding')).toBe(true)

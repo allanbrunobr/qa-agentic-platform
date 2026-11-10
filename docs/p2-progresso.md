@@ -1286,3 +1286,53 @@ de fechar, em dois lotes.
 - O `upgrade-local` de uma instalação antiga aplica agora `[1, 2]`.
 
 **Verificação (lote 2):** `lint` 0; `typecheck` 0; `npm test` 0 (API 481, rotas `node:test` 27, web 121); `verify:release` 0; `test:e2e` 0.
+
+## `pre-pr-contradicoes` (rodada 2, `0956b06`): 6 vivos, 6 refutados
+
+Nenhum dos 12 achados da rodada 1 voltou. Os 6 vivos são novos.
+
+### Corrigido
+
+| Achado | Correção | Teste (falhou antes) |
+|---|---|---|
+| #3 A saída de `captureScreenshot`/`collectDomSnippet` (`artifactId`, `filePath`, …) virava saída do passo e "artefato do cenário", agora que essas ferramentas são oferecidas em todo passo | A saída de uma ferramenta de suporte só entra na saída do passo se trouxer um artefato que o passo declara (o caso de um passo cuja capability é o próprio `captureScreenshot`) | `report-finding.test.ts`: screenshot antes da ação → saída `{ orderSubmitted: true }`; passo com capability `captureScreenshot` e artefato `artifactId` continua completando |
+| #5, #6 Com `dev:api`, um `DATABASE_URL` relativo é resolvido a partir de `packages/api`, mas o `upgrade-local` só procurava a partir de `.agentic-qa` | Um `DATABASE_URL` relativo é procurado nos dois diretórios de trabalho | `upgrade-local.test.ts`: `DATABASE_URL=data/custom.db` com o banco em `packages/api/data/custom.db` → encontrado e com backup. Com a resolução antiga, falha |
+| #1 (parte do texto) A descrição do `reportFinding` se contradizia: "primeiro capture e passe o id" e "na mesma resposta da ação" | A descrição explica que o id só existe depois que a ferramenta roda, então a evidência vem de uma resposta anterior, e que o passo termina quando a ação produz os artefatos | — |
+
+### Decisão para o Allan: achados #1, #2 e #4 (mesma raiz)
+
+- O passo termina assim que a ação produz os artefatos declarados. Esse comportamento já existia
+  no `origin/main`.
+- Por isso, o modelo não chega a ver o resultado da ação dentro do passo. Um defeito que só
+  aparece no resultado não pode ser registrado. Com a política de screenshot (padrão das personas
+  de frontend), também não dá para prender evidência na mesma resposta da ação, porque o id ainda
+  não existe.
+- O `reportFinding` (B-04) funciona hoje para defeitos visíveis **antes** da ação.
+- A correção completa muda o laço do agente: depois que a ação produz os artefatos, dar ao modelo
+  uma rodada final, só com as ferramentas de suporte, para registrar o que viu. Custo: uma chamada
+  de modelo a mais por passo concluído, nos runtimes com provedor; o determinístico encerra na hora.
+- Não implementei porque muda custo e comportamento de todos os passos. Recomendo fazer, numa PR
+  própria e com o custo medido.
+
+**Verificação (rodada 2):** `audit:deps` 0; `lint` 0; `typecheck` 0; `npm test` 0 (API 483, rotas `node:test` 27, web 121); `verify:release` 0; `test:e2e` 0.
+
+# Fechamento (decisões do Allan, 2026-11-10)
+
+| Decisão | Situação |
+|---|---|
+| 1. T-08 · ESLint (flat config, recomendadas de TS, script `lint` limpo) | Feito. `npm run lint` passa e está no CI. O `ci-ok.sh` continua reprovando, mas agora só no `npm run build`, que este repositório não define |
+| 2. A-01 · fonte única | Feito. O avaliador e o gate do runtime são a fonte; o core delega. Motivo registrado na seção do A-01 |
+| 3. A-03 · `upgrade-local` | Feito, com testes de não destruição. Os achados das duas rodadas do `pre-pr` sobre ele foram corrigidos (banco do `dev:api`, `DATABASE_URL` do ambiente e relativo, dependências reinstaladas pelo launcher) |
+| 4. Reinstalação preserva o `.env.local` | Feito, incluindo linha de chave vazia contando como ausente. A documentação diz que o launcher só carrega as duas chaves de provedor |
+| 5. `.github/` · `audit:deps` no CI e actions por SHA | Feito: `checkout` v5.1.0, `setup-node` v5.0.0 e `gitleaks-action` v2.3.9, com a versão em comentário. Lint e auditoria entraram no job `verify` |
+| 6. Temporários | Feito: 245 diretórios `agentic-platform-*` apagados, nenhum em uso, 11,81 GB liberados |
+| `pre-pr-contradicoes` | Rodada 1 (`768b30f`): 12 vivos, todos corrigidos. Rodada 2 (`0956b06`): 6 vivos; 3 corrigidos e 3 com a mesma raiz deixados como decisão de produto (seção acima). Rodada 3 sobre o código final: ver abaixo |
+
+**Continua esperando o Allan**
+
+- Push e PR. Nada foi enviado. O push segue bloqueado pelo `ci-ok.sh`, que exige um `npm run build`
+  inexistente; criar esse script é decisão dele.
+- `reportFinding` depois da ação do passo (achados #1, #2 e #4 da rodada 2): rodada final só com as
+  ferramentas de suporte, com custo de uma chamada de modelo por passo.
+- Dependabot para manter os SHAs das actions atualizados (abriria PRs no repositório).
+- A-04, A-05, M-03 (legado, arquivos-deus, nomes antigos): recomendação de PR própria.

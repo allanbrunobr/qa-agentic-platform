@@ -76,12 +76,16 @@ async function findRuntimeDatabases(installedPath: string) {
   const skipped: Array<{ path: string; reason: string }> = []
   const configured = process.env['DATABASE_URL']
   if (configured && configured !== ':memory:') {
-    const resolved = path.resolve(installedPath, configured)
-    const relative = path.relative(installedPath, resolved)
-    if (relative.startsWith('..') || path.isAbsolute(relative)) {
-      skipped.push({ path: configured, reason: 'DATABASE_URL points outside .agentic-qa; upgrade it by hand.' })
-    } else {
-      candidates.add(resolved)
+    // A relative DATABASE_URL depends on where the API was started: try both working directories.
+    const bases = path.isAbsolute(configured) ? [installedPath] : [installedPath, path.join(installedPath, 'packages', 'api')]
+    for (const base of bases) {
+      const resolved = path.resolve(base, configured)
+      const relative = path.relative(installedPath, resolved)
+      if (relative.startsWith('..') || path.isAbsolute(relative)) {
+        skipped.push({ path: configured, reason: 'DATABASE_URL points outside .agentic-qa; upgrade it by hand.' })
+      } else {
+        candidates.add(resolved)
+      }
     }
   }
   const found: string[] = []

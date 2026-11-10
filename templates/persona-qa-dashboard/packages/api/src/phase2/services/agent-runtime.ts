@@ -591,7 +591,11 @@ export class AgentRuntime {
         // Support tools (evidence, findings) do not count as performing the step (B-03).
         if (result.ok && !STEP_SUPPORT_TOOLS.has(toolName)) successfulToolCalls += 1
 
-        if (result.ok && toolName !== REPORT_FINDING_TOOL && result.output && typeof result.output === 'object' && !Array.isArray(result.output)) {
+        // Support tools (evidence, findings) report on the step; their output is not the step's output,
+        // unless it carries an artifact the step declares (a step whose capability is captureScreenshot).
+        const supportOutputCounts = !STEP_SUPPORT_TOOLS.has(toolName)
+          || Object.keys((result.ok && result.output && typeof result.output === 'object' ? result.output : {}) as Record<string, unknown>).some((key) => expectedArtifacts.includes(key))
+        if (result.ok && supportOutputCounts && result.output && typeof result.output === 'object' && !Array.isArray(result.output)) {
           Object.assign(accumulatedOutput, result.output as Record<string, unknown>)
         }
 

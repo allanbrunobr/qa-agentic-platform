@@ -2,7 +2,7 @@
  * upgrade-local (A-03): applies pending migrations to an installed runtime without destroying data.
  * Run with: npx tsx packages/dashboard-api/src/upgrade-local.test.ts
  */
-import { mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
@@ -80,6 +80,12 @@ try {
   // `npm run dev:api` runs the API from packages/api, so its database lives there.
   const devDbFile = path.join(installed, 'packages', 'api', 'persona-qa.db')
   writeOldDatabase(devDbFile)
+  // A relative DATABASE_URL, as dev:api resolves it from packages/api.
+  await mkdir(path.join(installed, 'packages', 'api', 'data'), { recursive: true })
+  const customDbFile = path.join(installed, 'packages', 'api', 'data', 'custom.db')
+  writeOldDatabase(customDbFile)
+  const previousDatabaseUrl = process.env.DATABASE_URL
+  process.env.DATABASE_URL = 'data/custom.db'
   const adapterFile = path.join(installed, 'adapter', 'personas', 'personas.generated.json')
   await writeFile(adapterFile, '[{"id":"reviewed-by-hand"}]')
   await writeFile(path.join(installed, '.env.local'), 'PLAYWRIGHT_BASE_URL=http://127.0.0.1:4100\n')
@@ -88,6 +94,10 @@ try {
   await writeFile(metadataPath, JSON.stringify({ ...metadata, templateVersion: '0.0.9' }))
 
   const result = await upgradeLocalPackage({ repoPath: repo, now: new Date('2026-11-10T12:00:00.000Z') })
+  if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL
+  else process.env.DATABASE_URL = previousDatabaseUrl
+  const customUpgraded = result.databases.find((item) => item.path === path.join('packages', 'api', 'data', 'custom.db'))
+  check(Boolean(customUpgraded?.backup), 'a relative DATABASE_URL is also found where dev:api opens it, and backed up')
   const upgraded = result.databases.find((item) => item.path === 'persona-qa.db')
   const db = new DatabaseSync(dbFile)
   check(columns(db, 'p2_sessions').includes('run_id') && columns(db, 'runs').includes('high_count'), 'the pending migrations added the missing columns')
