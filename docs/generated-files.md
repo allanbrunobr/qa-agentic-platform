@@ -4,7 +4,7 @@ Everything the platform writes goes into one directory inside the target reposit
 
 Rule of thumb:
 
-- A file whose name contains **`.generated.`** belongs to discovery. `discover-local` deletes and rewrites these files on every run. Do not hand-edit them. To change them, change the source repository and run discovery again, or copy the file to a name without `.generated.` (see [Customizing](#customizing)).
+- A file whose name contains **`.generated.`** belongs to discovery. `discover-local` deletes and rewrites these files on every run. Do not hand-edit them. It only touches real files and folders inside `.agentic-qa/`: if a folder or a generated file there is a symlink, discovery stops with `local_confinement_refused` and writes nothing through it. To change them, change the source repository and run discovery again, or copy the file to a name without `.generated.` (see [Customizing](#customizing)).
 - Everything else is either runtime code (copied from the template) or runtime state (database, screenshots, settings).
 
 ## `install-local`

@@ -3,7 +3,7 @@
  * Run with: npx tsx packages/dashboard-api/src/hardening.regression.test.ts
  */
 import { spawn, spawnSync } from 'node:child_process'
-import { mkdtemp, mkdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises'
+import { cp, lstat, mkdtemp, mkdir, readdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { createServer as createNetServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -284,12 +284,111 @@ async function testInstaller() {
   }
 }
 
+// S-02 (docs/analise-20261109.md): the target repository is untrusted and can commit symlinks inside
+// .agentic-qa/ or in the folders discovery copies. discover-local must never write, delete, or copy
+// through them. Every case runs the real CLI on a copy of examples/storefront, which reaches the
+// materializer; the clean case proves that, so a symlink case cannot pass just because discovery failed.
+async function runDiscoverLocal(repo: string) {
+  const child = spawn(process.execPath, ['--import', 'tsx', 'packages/dashboard-api/src/cli.ts', 'discover-local', repo], {
+    cwd: platformRoot,
+    env: { ...process.env, ANTHROPIC_API_KEY: '', ANTHROPIC_API_KEY_OVERRIDE: '', ANTHROPIC_API: '', OPENAI_API_KEY: '' },
+  })
+  let stderr = ''
+  child.stdout.resume()
+  child.stderr.setEncoding('utf8')
+  child.stderr.on('data', (chunk) => { stderr += chunk })
+  const status = await new Promise<number>((resolve) => child.on('close', (code) => resolve(code ?? 1)))
+  return { status, stderr }
+}
+
+async function storefrontCopy(label: string) {
+  const repo = await mkdtemp(path.join(tmpdir(), `agentic-confine-${label}-`))
+  await cp(path.join(platformRoot, 'examples', 'storefront'), repo, { recursive: true })
+  return repo
+}
+
+async function exists(target: string) {
+  try {
+    await lstat(target)
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function testDiscoveryConfinement() {
+  const created: string[] = []
+  const temp = async (label: string) => {
+    const dir = await mkdtemp(path.join(tmpdir(), `agentic-confine-${label}-`))
+    created.push(dir)
+    return dir
+  }
+  try {
+    // Clean copy: discovery reaches the materializer and writes the adapter.
+    const clean = await storefrontCopy('clean')
+    created.push(clean)
+    const cleanRun = await runDiscoverLocal(clean)
+    assert(cleanRun.status === 0, `clean storefront discovery succeeds (status ${cleanRun.status})`)
+    assert(
+      await exists(path.join(clean, '.agentic-qa', 'adapter', 'manifest', 'adapter-manifest.generated.json')),
+      'clean storefront discovery writes the adapter manifest',
+    )
+
+    // Directory symlink: .agentic-qa/adapter/config -> a folder outside the repository.
+    const outsideDir = await temp('outside-dir')
+    await writeFile(path.join(outsideDir, 'victim.generated.keep'), 'keep me\n')
+    const dirRepo = await storefrontCopy('dirlink')
+    created.push(dirRepo)
+    await mkdir(path.join(dirRepo, '.agentic-qa', 'adapter'), { recursive: true })
+    await symlink(outsideDir, path.join(dirRepo, '.agentic-qa', 'adapter', 'config'))
+    const dirRun = await runDiscoverLocal(dirRepo)
+    const outsideAfter = await readdir(outsideDir)
+    assert(dirRun.status !== 0, 'discover-local fails when an adapter folder is a symlink')
+    assert(dirRun.stderr.includes('local_confinement_refused'), 'symlinked adapter folder is reported as a confinement refusal')
+    assert(!dirRun.stderr.includes('\n    at '), 'confinement refusal is reported without a stack')
+    assert(outsideAfter.includes('victim.generated.keep'), 'a *.generated.* file outside the repository is not deleted')
+    assert(
+      JSON.stringify(outsideAfter) === JSON.stringify(['victim.generated.keep']),
+      `nothing is written outside the repository through a symlinked folder (found ${outsideAfter.join(', ')})`,
+    )
+
+    // File symlink: the manifest path itself points to a file outside the repository.
+    const outsideFileDir = await temp('outside-file')
+    const victim = path.join(outsideFileDir, 'victim.txt')
+    await writeFile(victim, 'original content\n')
+    const fileRepo = await storefrontCopy('filelink')
+    created.push(fileRepo)
+    await mkdir(path.join(fileRepo, '.agentic-qa', 'adapter', 'manifest'), { recursive: true })
+    await symlink(victim, path.join(fileRepo, '.agentic-qa', 'adapter', 'manifest', 'adapter-manifest.generated.json'))
+    const fileRun = await runDiscoverLocal(fileRepo)
+    assert(fileRun.status !== 0, 'discover-local fails when a generated file is a symlink')
+    assert(await readFile(victim, 'utf8') === 'original content\n', 'a file outside the repository is not overwritten through a symlink')
+
+    // Source symlink: a folder discovery snapshots points outside the repository.
+    const outsideSource = await temp('outside-source')
+    await writeFile(path.join(outsideSource, 'secret.ts'), 'export const SECRET = "outside"\n')
+    const sourceRepo = await storefrontCopy('srclink')
+    created.push(sourceRepo)
+    await mkdir(path.join(sourceRepo, 'integration-test', 'persona-tests'), { recursive: true })
+    await symlink(outsideSource, path.join(sourceRepo, 'integration-test', 'persona-tests', 'support'))
+    const sourceRun = await runDiscoverLocal(sourceRepo)
+    const snapshotSecret = path.join(
+      sourceRepo, '.agentic-qa', 'adapter', 'runtime', 'host-source-snapshot', 'integration-test', 'persona-tests', 'support', 'secret.ts',
+    )
+    assert(sourceRun.status === 0, `discovery still succeeds when a snapshot source is a symlink (status ${sourceRun.status})`)
+    assert(!(await exists(snapshotSecret)), 'files outside the repository are not copied into the snapshot')
+  } finally {
+    for (const dir of created) await rm(dir, { recursive: true, force: true })
+  }
+}
+
 console.log('Running hardening regression tests...\n')
 await testControlPlane()
 await testTokenFileMode()
 await testSessionStore()
 await testRedactionAndDiscovery()
 await testInstaller()
+await testDiscoveryConfinement()
 if (failed > 0) {
   console.error(`\n${failed} hardening check(s) failed`)
   process.exit(1)

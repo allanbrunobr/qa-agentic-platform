@@ -44,6 +44,48 @@ de WebSocket recusado e aceito; o parser de `Host`.
 
 **Fica para o Allan:** nada que exija conta ou credencial.
 
-## S-02 · Discovery escreve e apaga fora do repositório via symlink — em andamento
+## S-02 · Discovery escreve e apaga fora do repositório via symlink — feito
+
+**O que mudou**
+
+- `packages/dashboard-api/src/services/confined-local-fs.ts` (novo): todo IO de discovery sob
+  `.agentic-qa/` passa por aqui. A raiz é resolvida com `realpath`. Cada segmento de diretório é
+  checado com `lstat`, e um symlink ou um não-diretório é recusado. Arquivos são abertos com
+  `O_NOFOLLOW` e um destino que já é symlink é recusado. A limpeza de `*.generated.*` só apaga
+  arquivos regulares, de diretórios reais. A cópia do snapshot de `integration-test/…` não segue
+  symlink nem na origem nem no destino.
+- `local-discovery-materializer.ts`: usa o módulo acima. Os caminhos devolvidos mantêm a grafia do
+  chamador; só o IO usa o caminho real (no macOS, `/tmp` vira `/private/tmp`).
+- A recusa é `LocalConfinementError` (`statusCode` 409, `code` `local_confinement_refused`). A CLI
+  `discover-local` imprime JSON sem stack e sai com 1; a rota `POST /api/discover-local` responde
+  409 em vez de 500.
+- `SECURITY.md` e `docs/generated-files.md` descrevem o comportamento.
+
+**Testes:** `testDiscoveryConfinement` em `packages/dashboard-api/src/hardening.regression.test.ts`
+(roda no `npm run test:unit`). Usa a CLI real sobre cópias de `examples/storefront`, com 11
+checagens em 4 casos:
+
+1. Cópia limpa: a descoberta chega ao materializer e grava o manifesto. Isso impede que os casos
+   seguintes passem só porque a descoberta falhou.
+2. `.agentic-qa/adapter/config` como symlink para uma pasta de fora.
+3. O manifesto gerado como symlink para um arquivo de fora.
+4. `integration-test/persona-tests/support` como symlink para uma pasta de fora com um "segredo".
+
+- **Antes da correção:** 7 checagens falharam. O arquivo `victim.generated.keep` de fora foi
+  apagado; 5 JSONs foram gravados fora; o arquivo-vítima foi sobrescrito; o segredo foi copiado
+  para o snapshot.
+- **Depois da correção:** 11/11.
+
+**Limite conhecido, registrado no código:** um processo do mesmo usuário que troque um diretório
+por symlink entre a checagem e a escrita. Fica fora do modelo de ameaça, porque esse processo já
+pode escrever os arquivos por conta própria. O arquivo final é protegido por `O_NOFOLLOW`.
+
+**Verificação:** `typecheck` 0; `npm test` 0 (as 11 checagens novas rodam no `test:unit`, com 0
+FAIL no log; API 345 testes, web 116); `verify:release` 0; `test:e2e` 0 (app saudável
+`contract_compliant`, app quebrado `contract_violated`).
+
+**Fora do escopo deste item:** os scanners de leitura que seguem symlink (S-10) continuam como P2.
+
+**Fica para o Allan:** nada que exija conta ou credencial.
 
 ## B-02 · `targetBaseUrl` ignorado pelas tools — pendente

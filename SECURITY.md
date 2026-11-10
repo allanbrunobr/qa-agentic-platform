@@ -18,7 +18,10 @@ This is an alpha, single-maintainer project. The areas that matter most:
 - **Secrets.** The installer can write a provider key to `<repo>/.agentic-qa/.env.local`.
   Any path that logs, commits, or sends that key elsewhere is in scope.
 - **Host code.** `install-local` and `discover-local` must only write inside `<repo>/.agentic-qa/`.
-  A write outside that directory is a bug. A symlinked `.agentic-qa` is refused.
+  A write outside that directory is a bug. A symlinked `.agentic-qa` is refused, and so is any
+  symlinked folder or generated file inside it: `discover-local` fails with
+  `local_confinement_refused` instead of writing or deleting through the link. Folders copied from
+  the repository into the host-source snapshot are read without following symlinks.
   `.env.local` is rewritten on install and is not sourced by the launcher.
 - **Control plane.** `dev:api` and `dev:web` listen on `127.0.0.1`. Requests other than
   `GET /health` require the token in `data/control-plane.token`.
