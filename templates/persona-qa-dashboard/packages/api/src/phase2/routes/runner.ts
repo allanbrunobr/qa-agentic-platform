@@ -7,6 +7,7 @@ import { buildScenarioQualityGateForSessions } from '../services/scenario-qualit
 import { createPhase2Runtime } from '../services/runtime-bootstrap.js'
 import {
   parseExecutionContext,
+  resolveExecutionApiBaseUrl,
   resolveExecutionBaseUrl,
   summarizeExecutionContext,
 } from '../services/execution-context.js'
@@ -136,9 +137,10 @@ export async function phase2RunnerRoutes(app: FastifyInstance): Promise<void> {
         // runtime keeps it out of the model prompt.
         if (useGeneratedNonFrontendRuntime) {
           const targetRepoPath = executionContext?.targetRepoPath ?? resolveGeneratedTargetRepoPath()
-          // Only a base URL the run asked for explicitly: without one, API probes keep using
-          // GENERIC_API_BASE_URL (PLAYWRIGHT_BASE_URL is a frontend default, not an API base).
-          const requestedBaseUrl = resolveExecutionBaseUrl(executionContext)
+          // Only an API base URL the run asked for (targetBaseUrl or a backend preview): without one,
+          // probes keep using GENERIC_API_BASE_URL. Frontend previews and PLAYWRIGHT_BASE_URL are not
+          // API bases.
+          const requestedBaseUrl = resolveExecutionApiBaseUrl(executionContext)
           await runtime.orchestrator.executeRunInSession(session.id, scenario, {
             ...seedArtifacts,
             targetRepoPath,

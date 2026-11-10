@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { assertNoSymlinksUnder } from './confined-local-fs.ts'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -212,6 +213,10 @@ export async function resolveConfinedInstallPath(repoPath: string): Promise<stri
     if (error instanceof Error && error.message.startsWith('refusing to install:')) throw error
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
   }
+  // The repository is untrusted and may commit links inside .agentic-qa (for example .env.local or
+  // scripts/ pointing elsewhere). Install writes with plain fs calls that follow links, so refuse
+  // before the first write. node_modules is skipped: npm creates legitimate links there.
+  await assertNoSymlinksUnder(installedPath, { skipDirNames: ['node_modules'], label: LOCAL_PACKAGE_DIRNAME })
   return installedPath
 }
 

@@ -1,4 +1,4 @@
-import { lstat, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { lstat, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -47,6 +47,14 @@ describe('ensureRuntimeToken', () => {
     const tokenPath = path.join(dir, 'runtime-api.token')
     await symlink(outside, tokenPath)
     await expect(ensureRuntimeToken(tokenPath)).rejects.toThrow(/symlink/)
+  })
+
+  it('refuses a token folder that is a symlink', async () => {
+    const outside = await tempDir()
+    const runtime = await tempDir()
+    await symlink(outside, path.join(runtime, 'data'))
+    await expect(ensureRuntimeToken(path.join(runtime, 'data', 'runtime-api.token'))).rejects.toThrow(/symlink/)
+    expect(await readdir(outside)).toEqual([])
   })
 
   it('keeps the token inside the runtime data folder, which the runtime .gitignore excludes', () => {

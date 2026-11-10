@@ -39,6 +39,22 @@ export function resolveExecutionBaseUrl(context: Phase2ExecutionContext | undefi
   return context.previewTargets?.find((target) => typeof target.url === 'string')?.url
 }
 
+const API_PREVIEW_ROLES = new Set(['backend', 'api', 'server', 'service'])
+
+/**
+ * Base URL for HTTP probes in API (non-browser) runs: the explicit targetBaseUrl, or a preview target
+ * whose role is a backend. Unlike resolveExecutionBaseUrl, it never falls back to a frontend preview:
+ * probing the frontend would record API results for a service that was never called.
+ */
+export function resolveExecutionApiBaseUrl(context: Phase2ExecutionContext | undefined): string | undefined {
+  if (!context) return undefined
+  if (context.targetBaseUrl) return context.targetBaseUrl
+  return context.previewTargets?.find((target) => {
+    const role = target.role?.toLowerCase()
+    return Boolean(role && API_PREVIEW_ROLES.has(role) && target.url)
+  })?.url
+}
+
 export function summarizeExecutionContext(context: Phase2ExecutionContext | undefined): Record<string, unknown> | undefined {
   if (!context) return undefined
   return {

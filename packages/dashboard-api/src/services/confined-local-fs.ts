@@ -49,6 +49,37 @@ function isInside(root: string, candidate: string): boolean {
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative))
 }
 
+/**
+ * Throws if anything under `root` is a symlink, without following any link. Directories named in
+ * `skipDirNames` (node_modules, where npm creates legitimate links) are not entered. A missing root
+ * is fine. Used before install writes into an existing `.agentic-qa`.
+ */
+export async function assertNoSymlinksUnder(
+  root: string,
+  options: { skipDirNames?: string[]; label?: string } = {},
+): Promise<void> {
+  const skip = new Set(options.skipDirNames ?? [])
+  const label = options.label ?? path.basename(root)
+  const walk = async (dir: string): Promise<void> => {
+    let entries: import('node:fs').Dirent[]
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true })
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
+      throw error
+    }
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name)
+      if (entry.isSymbolicLink()) {
+        const relative = path.join(label, path.relative(root, full))
+        throw new LocalConfinementError(`refusing to install: ${relative} is a symlink`)
+      }
+      if (entry.isDirectory() && !skip.has(entry.name)) await walk(full)
+    }
+  }
+  await walk(root)
+}
+
 export class ConfinedLocalFs {
   private constructor(
     readonly repoRoot: string,

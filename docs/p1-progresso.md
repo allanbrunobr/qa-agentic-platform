@@ -136,6 +136,20 @@ seguinte:**
    com servidores HTTP reais. Antes da correção, o caso principal falhava porque a sonda ia ao
    servidor do ambiente.
 
+**Achados da terceira checagem pré-PR, corrigidos no commit seguinte:**
+
+5. O `install-local` só recusava o `.agentic-qa` inteiro como symlink. Um symlink versionado
+   dentro dele (por exemplo `.env.local` ou `scripts/`) recebia a chave do provider ou o launcher no
+   destino do link. Não era regressão, mas o `SECURITY.md` promete o contrário. Agora a instalação
+   varre `.agentic-qa` (sem entrar em `node_modules`, onde o npm cria links legítimos) e recusa
+   qualquer symlink antes da primeira escrita. O teste de hardening confirmou a falha antes da
+   correção: a chave sintética foi gravada no arquivo-vítima e o launcher foi parar na pasta de
+   fora. O token do runtime também passou a recusar uma pasta `data/` que seja symlink.
+6. Em repositório de API, um run com preview mandava as sondas para a URL do preview de frontend.
+   Agora há `resolveExecutionApiBaseUrl`: usa o `targetBaseUrl` explícito ou um preview com papel
+   de backend, nunca o de frontend. O teste é unitário; o runner no ramo sem browser continua sem
+   teste próprio.
+
 ## S-02 · Discovery escreve e apaga fora do repositório via symlink — feito
 
 **O que mudou**

@@ -233,6 +233,30 @@ async function testInstaller() {
     assert(symlinkRefused, 'symlink .agentic-qa aborts install')
     assert(!outsideNames.includes('package.json'), 'symlink target does not receive the template')
 
+    // A symlink committed INSIDE .agentic-qa must also abort install before any write: otherwise the
+    // provider key in .env.local, or the launcher in scripts/, lands wherever the link points.
+    process.env.ANTHROPIC_API_KEY = 'synthetic-test-key'
+    const linkVictimDir = await mkdtemp(path.join(tmpdir(), 'agentic-link-victim-'))
+    const linkVictim = path.join(linkVictimDir, 'victim.txt')
+    await writeFile(linkVictim, 'original content\n')
+    const linkScriptsTarget = await mkdtemp(path.join(tmpdir(), 'agentic-link-scripts-'))
+    const innerLinked = await mkdtemp(path.join(tmpdir(), 'agentic-inner-linked-'))
+    await mkdir(path.join(innerLinked, '.agentic-qa'), { recursive: true })
+    await symlink(linkVictim, path.join(innerLinked, '.agentic-qa', '.env.local'))
+    await symlink(linkScriptsTarget, path.join(innerLinked, '.agentic-qa', 'scripts'))
+    let innerRefused = false
+    try {
+      await installLocalPackage({ repoPath: innerLinked })
+    } catch (error) {
+      innerRefused = error instanceof Error && error.message.includes('symlink')
+    }
+    delete process.env.ANTHROPIC_API_KEY
+    const scriptsAfter = await import('node:fs/promises').then((fs) => fs.readdir(linkScriptsTarget))
+    assert(innerRefused, 'a symlink inside .agentic-qa aborts install')
+    assert(await readFile(linkVictim, 'utf8') === 'original content\n', 'a symlinked .env.local does not receive the provider key')
+    assert(scriptsAfter.length === 0, `a symlinked scripts/ folder receives nothing (found ${scriptsAfter.join(', ')})`)
+    for (const dir of [linkVictimDir, linkScriptsTarget, innerLinked]) await rm(dir, { recursive: true, force: true })
+
     const planted = await mkdtemp(path.join(tmpdir(), 'agentic-planted-'))
     await mkdir(path.join(planted, '.agentic-qa'), { recursive: true })
     await writeFile(path.join(planted, '.agentic-qa', '.env.local'), 'echo PLANTED\n', { mode: 0o600 })

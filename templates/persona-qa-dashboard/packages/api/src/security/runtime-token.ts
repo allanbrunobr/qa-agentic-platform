@@ -34,6 +34,9 @@ export function defaultRuntimeTokenPath(env: NodeJS.ProcessEnv = process.env): s
 /** Creates the token file on first use (0600, never through a symlink) and returns the token. */
 export async function ensureRuntimeToken(tokenPath: string = defaultRuntimeTokenPath()): Promise<string> {
   await fs.mkdir(path.dirname(tokenPath), { recursive: true })
+  if ((await fs.lstat(path.dirname(tokenPath))).isSymbolicLink()) {
+    throw new RuntimeTokenError(`refusing runtime token folder ${path.dirname(tokenPath)}: it is a symlink`)
+  }
   const existing = await fs.lstat(tokenPath).catch((error: NodeJS.ErrnoException) => {
     if (error.code === 'ENOENT') return null
     throw error
