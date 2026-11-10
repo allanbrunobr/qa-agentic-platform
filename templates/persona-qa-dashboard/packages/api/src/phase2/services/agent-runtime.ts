@@ -79,10 +79,8 @@ const REPO_ROOT = path.resolve(__dirname, '../../../../../..')
 /** Evidence ids, per kind, that a screenshot evidence policy accepts in the current step. */
 interface ScreenshotPolicyEvidence {
   screenshots: string[]
-  /** collectDomSnippet ids taken while captureScreenshot refused the page as blank. */
+  /** collectDomSnippet ids whose page had no renderable content when it was read (pageBlank). */
   blankPageSnippets: string[]
-  /** captureScreenshot's last answer in this step was blank_page. */
-  pageBlank: boolean
 }
 
 /** A reportFinding call the runtime refused, as recorded when the model cannot see the refusal. */
@@ -277,9 +275,9 @@ export class AgentRuntime {
     const messages = [...stepContext.messages]
     const collectedFindings: AgentStepOutput['findings'] = []
     const collectedEvidence: string[] = []
-    // What a screenshot evidence policy accepts: a screenshot of this step, or a DOM snippet taken
-    // while captureScreenshot refused the page as blank (a white screen has no other evidence).
-    const screenshotPolicyEvidence: ScreenshotPolicyEvidence = { screenshots: [], blankPageSnippets: [], pageBlank: false }
+    // What a screenshot evidence policy accepts: a screenshot of this step, or a DOM snippet of a page
+    // that was blank when it was read (a white screen has no other evidence).
+    const screenshotPolicyEvidence: ScreenshotPolicyEvidence = { screenshots: [], blankPageSnippets: [] }
     const accumulatedOutput: Record<string, unknown> = {}
     const expectedArtifacts = this.extractExpectedArtifacts(messages)
     const stepId = this.extractScenarioStepId(messages)
@@ -596,12 +594,6 @@ export class AgentRuntime {
             code: result.error.code,
           })
         }
-        // The page counts as blank from a blank_page refusal until a screenshot succeeds: a page is
-        // about:blank before the first navigation, and a refusal there must not excuse DOM-only
-        // evidence once the page has rendered.
-        if (toolName === 'captureScreenshot') {
-          screenshotPolicyEvidence.pageBlank = !result.ok && result.error.code === 'blank_page'
-        }
 
         this.sessionService.appendEvent(sessionId, {
           type: 'tool_result',
@@ -627,7 +619,9 @@ export class AgentRuntime {
           if (output?.artifactId) {
             collectedEvidence.push(String(output.artifactId))
             if (toolCall.name === 'captureScreenshot') screenshotPolicyEvidence.screenshots.push(String(output.artifactId))
-            if (toolCall.name === 'collectDomSnippet' && screenshotPolicyEvidence.pageBlank) {
+            // collectDomSnippet measures the page when it reads it, with captureScreenshot's own check.
+            // The order of calls does not matter: the page's state at the snippet does.
+            if (toolCall.name === 'collectDomSnippet' && output.pageBlank === true) {
               screenshotPolicyEvidence.blankPageSnippets.push(String(output.artifactId))
             }
           }
@@ -1063,7 +1057,7 @@ export class AgentRuntime {
 
     const evidence = finding.evidenceArtifactIds.filter((id) => collectedEvidence.includes(id))
     // A screenshot policy is met by a screenshot of this step. A DOM snippet alone does not count,
-    // unless it was taken while captureScreenshot refused the page as blank: then it is the only evidence.
+    // unless the page was blank when the snippet read it (pageBlank): then it is the only evidence.
     const meetsScreenshotPolicy = evidence.some((id) => screenshotPolicyEvidence.screenshots.includes(id)
       || screenshotPolicyEvidence.blankPageSnippets.includes(id))
     if (profile.evidencePolicy.requireScreenshotForFinding && !meetsScreenshotPolicy) {
@@ -1072,7 +1066,7 @@ export class AgentRuntime {
         error: {
           code: 'finding_without_evidence',
           message: 'This agent must attach evidence to findings: call captureScreenshot in this step and pass the returned artifactId in evidenceArtifactIds. '
-            + 'If captureScreenshot refused the page as blank, pass a collectDomSnippet artifactId instead.',
+            + 'If the page is blank (captureScreenshot refuses it), call collectDomSnippet now and pass its artifactId: a snippet whose result says pageBlank: true counts instead.',
           retryable: true,
         },
       }

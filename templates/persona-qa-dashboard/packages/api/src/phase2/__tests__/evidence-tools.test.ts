@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { ToolRegistry } from '../services/tool-registry.js'
 import { createSessionServiceStub } from '../services/session-service.js'
 import {
@@ -107,6 +107,22 @@ describe('evidence-tools', () => {
         expect(out.selector).toBe('#form')
         expect(out.htmlLength).toBeGreaterThan(0)
       }
+    })
+
+    // Eighth pre-PR run: the snippet says whether its page was blank, measured with captureScreenshot's
+    // own check, so a screenshot evidence policy can accept it for a white screen.
+    it('reports whether the page was blank when the snippet was read', async () => {
+      const handler = makeCollectDomSnippetHandler(sessionService)
+      const storeArtifact = vi.spyOn(sessionService, 'storeArtifact')
+      const blank = await handler(
+        { selector: 'body', description: 'white screen' },
+        { page: { ...mockBlankPage(), locator: () => ({ innerHTML: async () => '<div id="root"></div>' }) }, sessionId: 'sess-1', agentRole: 'sales_associate' },
+      )
+      const rendered = await handler({ selector: '#form', description: 'form' }, ctx)
+
+      expect(blank.ok && (blank.output as Record<string, unknown>).pageBlank).toBe(true)
+      expect(rendered.ok && (rendered.output as Record<string, unknown>).pageBlank).toBe(false)
+      expect(storeArtifact.mock.calls.map(([, artifact]) => (artifact as { metadata?: Record<string, unknown> }).metadata?.['pageBlank'])).toEqual([true, false])
     })
 
     it('returns error without selector', async () => {

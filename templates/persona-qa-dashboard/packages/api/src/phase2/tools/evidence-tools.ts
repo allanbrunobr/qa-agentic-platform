@@ -123,8 +123,11 @@ export function makeCollectDomSnippetHandler(sessionService: SessionService): To
     if (abortedBefore) return abortedBefore
 
     try {
-      const page = context.page as { locator: (sel: string) => { innerHTML: () => Promise<string> } }
+      const page = context.page as EvidencePage & { locator: (sel: string) => { innerHTML: () => Promise<string> } }
       const html = await page.locator(selector).innerHTML()
+      // Measured with the same check captureScreenshot uses to refuse a page. A snippet of a blank
+      // page is the only evidence a white screen can have, so a screenshot evidence policy accepts it.
+      const pageBlank = !(await hasRenderablePageContent(page))
       const abortedAfterRead = stepAborted(context)
       if (abortedAfterRead) return abortedAfterRead
 
@@ -133,10 +136,10 @@ export function makeCollectDomSnippetHandler(sessionService: SessionService): To
         agentRole: context.agentRole ?? 'unknown',
         description,
         content: html,
-        metadata: { selector },
+        metadata: { selector, pageBlank },
       })
 
-      return { ok: true, output: { artifactId: artifact.id, selector, htmlLength: html.length } }
+      return { ok: true, output: { artifactId: artifact.id, selector, htmlLength: html.length, pageBlank } }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       return { ok: false, error: { code: 'dom_snippet_error', message, retryable: true } }
@@ -146,7 +149,8 @@ export function makeCollectDomSnippetHandler(sessionService: SessionService): To
 
 export const collectDomSnippetMetadata: ToolMetadata = {
   name: 'collectDomSnippet',
-  description: 'Capture a DOM fragment as evidence of page state',
+  description: 'Capture a DOM fragment as evidence of page state. The result says pageBlank: true when the page has no renderable '
+    + 'content (captureScreenshot refuses such a page); a snippet with pageBlank: true can stand in for a screenshot as finding evidence.',
   inputSchema: {
     type: 'object',
     properties: {

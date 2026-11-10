@@ -1458,3 +1458,21 @@ registrar a recusa não vista → 1 falha; registrar sempre → 1 falha; painel 
 Restaurado e conferido com `cmp`.
 
 **Verificação (rodada 7):** `audit:deps` 0; `lint` 0; `typecheck` 0; `build` 0; `npm test` 0 (API 491, rotas `node:test` 27, web 123); `verify:release` 0; `test:e2e` 0.
+
+## `pre-pr-contradicoes` (rodada 8, `2621291`): 4 vivos, 9 refutados — corrigidos
+
+| Achado | Correção | Teste (falhou antes) |
+|---|---|---|
+| #1 A exceção de página em branco só aceitava um DOM snippet coletado **depois** da recusa `blank_page`, mas a descrição e a mensagem de erro não diziam isso | Mesma raiz de #3/#4, corrigida abaixo: o que vale é o estado da página quando o snippet foi lido, não a ordem das chamadas | `report-finding.test.ts`: DOM da página em branco → `captureScreenshot` recusa → achado com o id do DOM → gravado. Antes: recusado |
+| #3 e #4 A exceção dependia da última resposta do `captureScreenshot`, não do estado da página: depois de uma recusa, navegar (sem novo screenshot) e tirar um DOM snippet da página já renderizada passava pela política | `collectDomSnippet` mede a página com a mesma checagem do `captureScreenshot` (`hasRenderablePageContent`) e devolve `pageBlank` (também gravado no metadado do artefato). O runtime só aceita, no lugar do screenshot, um snippet com `pageBlank: true`. Descrições do `collectDomSnippet` e do `reportFinding` e a mensagem de recusa dizem isso | `report-finding.test.ts` com handlers reais e uma tool `openHome` que renderiza a página: recusa → `openHome` → DOM → achado **recusado** (antes gravado); `openHome` → screenshot ok → DOM → recusado. `evidence-tools.test.ts`: `pageBlank` true na página em branco, false na renderizada, e no metadado |
+| #2 O cartão "Spec vs run" do dashboard montava a "Observed order" dos eventos brutos (um `step_started` por tentativa): um passo refeito empurrava os seguintes e os pintava de vermelho com o veredito `compliant`. O status do passo no modo sem veredito punha `failed` antes de `complete` | `AgenticRuns.tsx`: a ordem vem de `evaluation.observedStepOrder` e, sem veredito, de `summarizeStepOutcomes` (primeiro início de cada passo, último resultado), a mesma regra do `contract-verdict.ts` | `spec-vs-run-order.test.tsx` renderiza o cartão com s1 falhou → s1 completou → s2: a faixa mostra `1. s1`, `2. s2`, ambos verdes. Antes: 3 etiquetas, 2 vermelhas |
+
+Isto substitui a regra da rodada 7 ("um screenshot bem-sucedido desfaz a marca").
+
+**Mutação:** handler que nunca acusa página em branco → 3 falhas; que sempre acusa → 3 falhas;
+runtime que ignora `pageBlank` → 2 falhas; qualquer DOM aceito → 3 falhas (inclui o teste da rodada
+6); faixa com eventos brutos → 1 falha. A primeira tentativa do laço de mutação passou os dois arquivos
+de teste como um argumento só e o vitest não achou teste (exit 1 sem rodar nada); refeito com os
+caminhos separados antes de contar como morta. Restaurado e conferido com `cmp`.
+
+**Verificação (rodada 8):** `audit:deps` 0; `lint` 0; `typecheck` 0; `build` 0; `npm test` 0 (API 493, rotas `node:test` 27, web 125); `verify:release` 0; `test:e2e` 0.

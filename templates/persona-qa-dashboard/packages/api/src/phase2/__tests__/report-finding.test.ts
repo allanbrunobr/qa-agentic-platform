@@ -279,15 +279,21 @@ describe('reportFinding', () => {
     expect(events.some((event) => ((event.payload ?? event.data) as Record<string, unknown>)?.['event'] === 'finding_refused_at_step_end')).toBe(false)
   })
 
-  // Seventh pre-PR run, #3: captureScreenshot refuses a blank page, so on a white screen the only
-  // evidence there can be is a DOM snippet. A screenshot policy accepts it once captureScreenshot has
-  // refused the page as blank in this step. Uses the real evidence handlers.
-  // `renders` answers, in order, whether the page has content each time captureScreenshot checks it.
-  async function runOnBlankPage(firstCalls: ModelResponse[], renders: boolean[] = []) {
+  // Seventh and eighth pre-PR runs, #3 / #1, #3, #4: captureScreenshot refuses a blank page, so on a
+  // white screen the only evidence there can be is a DOM snippet. collectDomSnippet measures the page
+  // with the same check and reports pageBlank; a screenshot policy accepts a snippet whose page was
+  // blank when it was read. The order of calls does not matter, the page's state does. Uses the real
+  // evidence handlers; `openHome` renders the page (and fails, so the step does not end).
+  async function runOnBlankPage(firstCalls: ModelResponse[]) {
     const registry = new ToolRegistry()
     const sessionService = createSessionServiceStub()
+    let rendered = false
     registry.register('captureScreenshot', makeCaptureScreenshotHandler(sessionService), captureScreenshotMetadata)
     registry.register('collectDomSnippet', makeCollectDomSnippetHandler(sessionService), collectDomSnippetMetadata)
+    registry.register('openHome', async () => {
+      rendered = true
+      return { ok: false, error: { code: 'control_missing', message: 'cart button not found', retryable: false } }
+    }, { name: 'openHome', description: 'open home', requiresBrowser: false, tags: [] })
     registerFindingTools(registry)
     const session = sessionService.createSession('checkout_flow')
     // The DOM snippet id is generated, so the model reports the finding with the last artifactId it
@@ -302,18 +308,20 @@ describe('reportFinding', () => {
       return end
     })
     const runtime = new AgentRuntime({ chat } as unknown as ModelProvider, registry, sessionService)
-    runtime.registerAgent({ ...profile(true), toolPolicy: { browserAccess: true, allowedTools: ['captureScreenshot'] } })
-    // The white screen of a broken SPA: no text and no visible element in the body.
-    let checks = 0
+    runtime.registerAgent({ ...profile(true), toolPolicy: { browserAccess: true, allowedTools: ['openHome'] } })
+    // Until openHome runs, the white screen of a broken SPA: no text and no visible element.
     const page = {
       url: () => 'http://127.0.0.1:8080/',
-      evaluate: async () => renders[checks++] ?? false,
+      evaluate: async () => rendered,
       screenshot: async () => Buffer.from('png'),
-      locator: () => ({ innerHTML: async () => '<div id="root"></div>' }),
+      locator: () => ({ innerHTML: async () => (rendered ? '<main>cart</main>' : '<div id="root"></div>') }),
     }
-    const result = await runtime.executeStep('shopper', { ...STEP, id: 'home', capabilityId: 'captureScreenshot' }, { sessionId: session.id, page })
+    const result = await runtime.executeStep('shopper', { ...STEP, id: 'home', capabilityId: 'openHome' }, { sessionId: session.id, page })
     return { result, sessionService, sessionId: session.id }
   }
+
+  const recorded = (sessionService: SessionService, sessionId: string) => sessionService.getSession(sessionId)?.findings ?? []
+  const refusedFinding = expect.objectContaining({ ok: false, error: expect.objectContaining({ code: 'finding_without_evidence' }) })
 
   it('accepts DOM evidence for a finding about a page captureScreenshot refused as blank', async () => {
     const { result, sessionService, sessionId } = await runOnBlankPage([
@@ -323,35 +331,47 @@ describe('reportFinding', () => {
 
     expect(toolResults(sessionService, sessionId, 'captureScreenshot')[0]).toEqual(expect.objectContaining({ ok: false, error: expect.objectContaining({ code: 'blank_page' }) }))
     expect(toolResults(sessionService, sessionId, 'reportFinding')[0]).toEqual(expect.objectContaining({ ok: true }))
-    const stored = sessionService.getSession(sessionId)?.findings ?? []
+    const stored = recorded(sessionService, sessionId)
     expect(stored).toHaveLength(1)
     expect(stored[0]).toEqual(expect.objectContaining({ title: 'Home page renders a white screen' }))
     expect(stored[0]?.evidence).toHaveLength(1)
     expect(result.findings).toEqual([expect.objectContaining({ title: 'Home page renders a white screen' })])
   })
 
-  // A page is about:blank before the first navigation: a blank refusal there must not excuse
-  // DOM-only evidence once the page has rendered and a screenshot is possible.
-  it('refuses DOM-only evidence taken after the page rendered, even if it was blank earlier', async () => {
+  it('accepts a DOM snippet of the blank page taken before captureScreenshot refused it', async () => {
     const { result, sessionService, sessionId } = await runOnBlankPage([
-      call('s1', 'captureScreenshot', { description: 'before navigation' }),
-      call('s2', 'captureScreenshot', { description: 'after navigation' }),
-      call('d', 'collectDomSnippet', { selector: 'body', description: 'cart' }),
-    ], [false, true])
+      call('d', 'collectDomSnippet', { selector: 'body', description: 'empty root' }),
+      call('s', 'captureScreenshot', { description: 'white screen' }),
+    ])
+    expect(toolResults(sessionService, sessionId, 'reportFinding')[0]).toEqual(expect.objectContaining({ ok: true }))
+    expect(recorded(sessionService, sessionId)).toHaveLength(1)
+    expect(result.findings).toHaveLength(1)
+  })
 
-    const shots = toolResults(sessionService, sessionId, 'captureScreenshot')
-    expect(shots.map((shot) => shot.ok)).toEqual([false, true])
-    expect(toolResults(sessionService, sessionId, 'reportFinding')[0]).toEqual(expect.objectContaining({ ok: false, error: expect.objectContaining({ code: 'finding_without_evidence' }) }))
-    expect(sessionService.getSession(sessionId)?.findings ?? []).toEqual([])
+  // A page is about:blank before the first navigation: a blank refusal there must not excuse
+  // DOM-only evidence once the page has rendered.
+  it('refuses a DOM snippet taken after the page rendered, even though captureScreenshot refused it earlier', async () => {
+    const { result, sessionService, sessionId } = await runOnBlankPage([
+      call('s', 'captureScreenshot', { description: 'before navigation' }),
+      call('n', 'openHome'),
+      call('d', 'collectDomSnippet', { selector: 'body', description: 'cart' }),
+    ])
+    expect(toolResults(sessionService, sessionId, 'captureScreenshot')[0]).toEqual(expect.objectContaining({ ok: false }))
+    expect(toolResults(sessionService, sessionId, 'reportFinding')[0]).toEqual(refusedFinding)
+    expect(recorded(sessionService, sessionId)).toEqual([])
     expect(result.findings).toEqual([])
   })
 
-  it('still refuses DOM-only evidence on a blank page when captureScreenshot was never tried', async () => {
-    const { sessionService, sessionId } = await runOnBlankPage([
-      call('d', 'collectDomSnippet', { selector: 'body', description: 'empty root' }),
+  it('refuses a DOM snippet of a rendered page when a screenshot was possible', async () => {
+    const { result, sessionService, sessionId } = await runOnBlankPage([
+      call('n', 'openHome'),
+      call('s', 'captureScreenshot', { description: 'rendered page' }),
+      call('d', 'collectDomSnippet', { selector: 'body', description: 'cart' }),
     ])
-    expect(toolResults(sessionService, sessionId, 'reportFinding')[0]).toEqual(expect.objectContaining({ ok: false, error: expect.objectContaining({ code: 'finding_without_evidence' }) }))
-    expect(sessionService.getSession(sessionId)?.findings ?? []).toEqual([])
+    expect(toolResults(sessionService, sessionId, 'captureScreenshot')[0]).toEqual(expect.objectContaining({ ok: true }))
+    expect(toolResults(sessionService, sessionId, 'reportFinding')[0]).toEqual(refusedFinding)
+    expect(recorded(sessionService, sessionId)).toEqual([])
+    expect(result.findings).toEqual([])
   })
 
   it('is registered by the runtime bootstrap', () => {
