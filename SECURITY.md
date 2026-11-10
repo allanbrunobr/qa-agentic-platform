@@ -23,5 +23,12 @@ This is an alpha, single-maintainer project. The areas that matter most:
 - **Control plane.** `dev:api` and `dev:web` listen on `127.0.0.1`. Requests other than
   `GET /health` require the token in `data/control-plane.token`.
 
+- **Generated runtime API.** It listens on `127.0.0.1` and rejects, before any route runs, every
+  request whose `Host` is not a loopback name (DNS rebinding) and every request that carries an
+  `Origin` other than the local dashboard (cross-site requests, including WebSocket upgrades).
+  Requests without `Origin` (curl, scripts) are accepted on a loopback `Host`. The runtime API has
+  no token: a process running as the same user can already read the runtime's files.
+
 Running the generated dashboard on a public interface is not supported. Bind it to localhost.
-The generated API reflects only the local web origins, not an arbitrary browser origin.
+Extra host names can be allowed with `AGENTIC_QA_ALLOWED_HOSTS`, and extra dashboard origins with
+`AGENTIC_QA_WEB_ORIGIN` (both comma-separated).
