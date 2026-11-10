@@ -45,10 +45,13 @@ Changes from the review in `docs/analise-20261109.md`. Item ids (S-, B-, T-, A-,
   opens the step again, so what a retry executed counts for its step, as in the runtime.
 - Screenshots taken under the launcher (`.agentic-qa/artifacts/`) are gitignored. A finding about a
   page `captureScreenshot` refuses as blank can use a DOM snippet taken while it is blank
-  (`collectDomSnippet` reports `pageBlank`, and `about:blank` before the first navigation does not count). A finding
-  refused in the response that ends its step is recorded as an error event and shown in the agent
-  conversation, instead of disappearing. The dashboard's observed step order lists a retried step
-  once.
+  (`collectDomSnippet` reports `pageBlank`, and `about:blank` before the first navigation does not count). When the
+  response that completes a step captures evidence after the action, or has a `reportFinding`
+  refused, the agent gets up to two more responses with only the evidence and finding tools, so it
+  can report what the action showed; other steps cost no extra model call. A finding still refused
+  when those run out is recorded as an error event and shown in the agent conversation. The block of
+  artifact values in a step's first message says they come from earlier steps or the operator and
+  are to be passed as tool inputs. The dashboard's observed step order lists a retried step once.
 
 ### Changed
 

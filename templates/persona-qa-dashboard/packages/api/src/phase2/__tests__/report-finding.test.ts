@@ -245,29 +245,103 @@ describe('reportFinding', () => {
     expect(toolResults(sessionService, session.id, 'reportFinding')[0]).toEqual(expect.objectContaining({ ok: false, error: expect.objectContaining({ code: 'finding_without_evidence' }) }))
   })
 
-  // Seventh pre-PR run, #1: a finding refused in the response that also completes the step never
-  // reaches the model, because the step ends with that batch. Giving the model another round is the
-  // deferred decision on a final reporting round (docs/p2-progresso.md); until then the loss is
-  // recorded as an error event that names the finding, instead of only a tool_result.
-  it('records an error event when the step ends with a finding the model never saw refused', async () => {
-    const { runtime, provider, sessionService, sessionId } = setup([
-      { text: '', toolCalls: [{ id: 'a', name: 'submitOrder', input: {} }, { id: 'c', name: 'reportFinding', input: finding() }], stopReason: 'tool_use' },
-      end,
-    ])
-    const result = await runtime.executeStep('shopper', { ...STEP, producedArtifacts: ['orderSubmitted'] }, { sessionId })
+  // Reporting rounds (Allan's decision of 2026-11-10; seventh pre-PR run #1, second run #1, #2, #4).
+  // The step ends as soon as its action produces the declared artifacts. When the response that does
+  // that also asks for it (a retryable reportFinding refusal, or evidence captured after the action),
+  // the model gets up to two more responses with only the support tools. Otherwise no extra call.
+  const declaring = { ...STEP, producedArtifacts: ['orderSubmitted'] }
+  const batch = (...calls: Array<[string, string, unknown?]>): ModelResponse => ({
+    text: '', toolCalls: calls.map(([id, name, input]) => ({ id, name, input: input ?? {} })), stopReason: 'tool_use',
+  })
+  const lostFindingEvents = (sessionService: SessionService, sessionId: string) => (sessionService.getSession(sessionId)?.events ?? [])
+    .filter((event) => event.type === 'error')
+    .map((event) => (event.payload ?? event.data) as Record<string, unknown>)
+    .filter((payload) => payload['event'] === 'finding_refused_at_step_end')
+  // mock.calls keeps the runtime's messages array, which grows after the call; join it all and only
+  // check what must be there by that call.
+  const promptOf = (provider: ModelProvider, call: number) => (vi.mocked(provider.chat).mock.calls[call]?.[0] ?? []).map((message) => message.content).join('\n')
+  const offeredIn = (provider: ModelProvider, call: number) => (vi.mocked(provider.chat).mock.calls[call]?.[1] ?? []).map((tool) => tool.name).sort()
 
+  it('costs no extra model call when the completing response asks for nothing', async () => {
+    const { runtime, provider, sessionId } = setup([batch(['a', 'submitOrder']), end])
+    const result = await runtime.executeStep('shopper', declaring, { sessionId })
     expect(result.status).toBe('completed')
     expect(vi.mocked(provider.chat).mock.calls).toHaveLength(1)
+  })
+
+  it('costs no extra model call for evidence captured before the action in the same response', async () => {
+    const { runtime, provider, sessionId } = setup([batch(['b', 'captureScreenshot', { description: 'cart' }], ['a', 'submitOrder']), end])
+    const result = await runtime.executeStep('shopper', declaring, { sessionId })
+    expect(result.status).toBe('completed')
+    expect(vi.mocked(provider.chat).mock.calls).toHaveLength(1)
+  })
+
+  // Second run #1, #2, #4: a defect visible only in the action's result could not be reported, and
+  // evidence could not be attached in the response of the action.
+  it('lets the model report what the action showed, with a screenshot taken after the action', async () => {
+    const { runtime, provider, sessionService, sessionId } = setup([
+      batch(['a', 'submitOrder'], ['b', 'captureScreenshot', { description: 'after submit' }]),
+      call('c', 'reportFinding', finding(['shot-1'])),
+      end,
+    ])
+    const result = await runtime.executeStep('shopper', declaring, { sessionId })
+
+    expect(result.status).toBe('completed')
+    expect(result.output).toEqual({ orderSubmitted: true })
+    expect(offeredIn(provider, 1)).toEqual(['captureScreenshot', 'reportFinding'])
+    expect(promptOf(provider, 1)).toContain('"orderSubmitted":true')
+    expect(vi.mocked(provider.chat).mock.calls).toHaveLength(2)
+    expect(result.findings).toEqual([expect.objectContaining({ title: 'Total ignores the discount', evidence: ['shot-1'] })])
+    expect(sessionService.getSession(sessionId)?.findings ?? []).toHaveLength(1)
+  })
+
+  // Seventh run #1: a refusal in the response that completed the step never reached the model.
+  it('shows the model a refusal from the completing response and lets it correct the finding', async () => {
+    const { runtime, provider, sessionService, sessionId } = setup([
+      batch(['a', 'submitOrder'], ['c', 'reportFinding', finding()]),
+      call('b', 'captureScreenshot', { description: 'total' }),
+      call('c2', 'reportFinding', finding(['shot-1'])),
+      end,
+    ])
+    const result = await runtime.executeStep('shopper', declaring, { sessionId })
+
+    expect(result.status).toBe('completed')
+    expect(vi.mocked(provider.chat).mock.calls).toHaveLength(3)
+    expect(promptOf(provider, 1)).toContain('finding_without_evidence')
+    expect(sessionService.getSession(sessionId)?.findings ?? []).toHaveLength(1)
+    expect(lostFindingEvents(sessionService, sessionId)).toEqual([])
+  })
+
+  it('does not run the step action again in a reporting round', async () => {
+    const { runtime, sessionService, sessionId } = setup([
+      batch(['a', 'submitOrder'], ['b', 'captureScreenshot', { description: 'after submit' }]),
+      batch(['a2', 'submitOrder']),
+      end,
+    ])
+    const result = await runtime.executeStep('shopper', declaring, { sessionId })
+
+    expect(result.status).toBe('completed')
+    const submitResults = toolResults(sessionService, sessionId, 'submitOrder')
+    expect(submitResults.map((entry) => entry.ok)).toEqual([true, false])
+    expect(submitResults[1]?.error?.code).toBe('reporting_round_only')
+  })
+
+  it('records an error event for a finding still refused when the reporting rounds run out', async () => {
+    const { runtime, provider, sessionService, sessionId } = setup([
+      batch(['a', 'submitOrder'], ['c', 'reportFinding', finding()]),
+      call('c2', 'reportFinding', finding()),
+      call('c3', 'reportFinding', finding()),
+      end,
+    ])
+    const result = await runtime.executeStep('shopper', declaring, { sessionId })
+
+    expect(result.status).toBe('completed')
+    expect(vi.mocked(provider.chat).mock.calls).toHaveLength(3)
     expect(sessionService.getSession(sessionId)?.findings ?? []).toEqual([])
-    const lost = (sessionService.getSession(sessionId)?.events ?? [])
-      .filter((event) => event.type === 'error')
-      .map((event) => (event.payload ?? event.data) as Record<string, unknown>)
-      .filter((payload) => payload['event'] === 'finding_refused_at_step_end')
-    expect(lost).toEqual([expect.objectContaining({
+    expect(lostFindingEvents(sessionService, sessionId)).toEqual([expect.objectContaining({
       stepId: 'checkout',
-      toolCallId: 'c',
+      toolCallId: 'c3',
       title: 'Total ignores the discount',
-      severity: 'high',
       code: 'finding_without_evidence',
     })])
   })

@@ -1534,3 +1534,40 @@ Rodadas 7 a 12 desta leva: 4 + 4 + 1 + 2 + 1 vivos, todos corrigidos com teste q
 checagem de mutação; a 12 saiu limpa. Continua com o Allan: a rodada extra do `reportFinding` depois
 da ação do passo (custo de modelo; a variante barata está anotada na rodada 7), A-04, A-05 e M-03,
 push e PR.
+
+## Depois da rodada 12: ordens do coordenador (Allan autorizou às 19:16)
+
+### Rodada 13 (`e869890`): 1 vivo, 8 refutados
+
+O PR foi aberto a partir do `e869890`, que tinha carimbo, CI verde e marcador do `ci-ok.sh`; a correção abaixo
+veio depois, porque corrigir antes tiraria o carimbo do HEAD e exigiria outra rodada não autorizada.
+
+| Achado | Correção | Teste (falhou antes) |
+|---|---|---|
+| #1 (baixo, não bloqueante) O bloco cercado com os valores dos artefatos também leva valores do operador (`seed_artifacts`), mas o aviso dizia "dado retornado por ferramentas da aplicação" e "use só como evidência"; os valores são justamente entradas para as ferramentas (um `orderId`) | `wrapUntrustedToolOutput` aceita o aviso; o bloco de artefatos diz que os valores vêm de passos anteriores ou do operador, que devem ser passados como entrada de ferramenta e que pedidos dentro deles não são instruções. O aviso dos resultados de tool não muda | `tool-scope-and-untrusted-output.test.ts`: o aviso do bloco com `customerName` de seed fala em operador e em passar como entrada, e não diz "only as evidence". Mutação (aviso antigo) → falha |
+
+### Rodadas de relato depois da ação (decisão do Allan; rodada 7 #1 e rodada 2 #1, #2, #4)
+
+- O passo continua terminando quando a ação produz os artefatos. Quando a resposta que o completa
+  pede — um `reportFinding` recusado com `retryable`, ou `captureScreenshot`/`collectDomSnippet`
+  chamado **depois** da ação —, o modelo recebe até duas respostas a mais, só com as ferramentas de
+  suporte, com o resultado da ação à vista. Os demais passos não custam chamada extra.
+- Uma ação chamada nessas respostas é recusada (`reporting_round_only`) e não roda de novo. Falha do
+  modelo ou fim do prazo nessas respostas fecha o passo como concluído.
+- Um achado ainda recusado quando as respostas acabam vira o evento `finding_refused_at_step_end`.
+- A descrição do `reportFinding` explica o caminho: evidência na mesma resposta, depois da ação.
+- Testes (`report-finding.test.ts`): sem pedido, 1 chamada; evidência antes da ação no mesmo lote, 1
+  chamada; screenshot depois da ação → 2ª chamada só com `captureScreenshot`/`reportFinding` e o
+  resultado da ação, achado gravado; recusa na resposta da ação → modelo vê a recusa, captura e
+  registra (3 chamadas); ação repetida na rodada de relato → recusada; recusas até o fim → evento.
+  Sem as rodadas de relato: 4 falhas.
+- Mutação: nunca oferecer → 4 falhas; sempre oferecer → 2; oferecer todas as ferramentas → 1; deixar
+  a ação rodar → 1; uma rodada só → 2; evidência antes da ação também disparar → 1 (este caso não
+  tinha teste; acrescentado antes de contar). Restaurado e conferido com `cmp`.
+
+### Execução com modelo real
+
+Não feita: não há chave configurada (nem no ambiente, nem em `.env.local` da plataforma no worktree ou
+no repositório principal). Fica com o Allan.
+
+**Verificação (pós-PR, local):** `audit:deps` 0; `lint` 0; `typecheck` 0; `build` 0; `npm test` 0 (API 510, rotas `node:test` 27, web 125); `verify:release` 0; `test:e2e` 0.
