@@ -591,3 +591,27 @@ espera, por exemplo) não é interrompida no meio; o que o passo impede é a pr�
   `git show 0151068 | grep -c '^+ *findings: \[\],'`.
 
 **Verificação (revisão):** `typecheck` 0; `npm test` 0 (API 460, web 121); `verify:release` 0; `test:e2e` 0.
+
+## S-12 · Dependências com vulnerabilidades conhecidas — parte 1 (sem major) feita
+
+**O que mudou**
+
+- O registry é o público (`registry.npmjs.org`), sem `.npmrc` no projeto.
+- Baseline com `npm audit --json`:
+  - raiz: 1 vulnerabilidade alta (`zod`, direta, só corrige com major);
+  - template: 17 (1 crítica `shell-quote`, 8 altas, 7 moderadas, 1 baixa).
+- `npm audit fix` (sem `--force`) caiu num bug do npm 10.9.8: `Cannot read properties of null
+  (reading 'edgesOut')` em `#loadPeerSet`, ao resolver os peers do `vitest`. Por isso:
+  - `npm update` das transitivas vulneráveis dentro das faixas declaradas, só no lockfile;
+  - `vite` e `vitest` com `npx npm@11.6.2 update … --package-lock-only`, que não tem o bug. O
+    lockfile continua na versão 3;
+  - `npm ci` com o lockfile novo: `vite` 6.4.2 → 6.4.6, `vitest` 4.1.4 → 4.1.12.
+- Template depois: 6 vulnerabilidades (0 crítica, 2 altas, 4 moderadas). Todas exigem major:
+  - `drizzle-orm` (alta, produção);
+  - `zod` (alta, produção);
+  - `drizzle-kit` e o `esbuild` antigo que ele arrasta (moderadas, desenvolvimento).
+- `npm run audit:deps` roda `npm audit --audit-level=high` na raiz e no template e falha se
+  qualquer um tiver alta. Hoje sai com 1, pelas majors pendentes. Ligar isso ao CI exige mexer em
+  `.github/`, que está fora deste trabalho; fica para o Allan.
+
+**Verificação:** `typecheck` 0; `npm test` 0 (API 460, web 121); `verify:release` 0; `test:e2e` 0, já com o `node_modules` reinstalado pelo lockfile novo.
