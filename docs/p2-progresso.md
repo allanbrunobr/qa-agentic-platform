@@ -1512,3 +1512,25 @@ journal que é uma lente sem achados, não uma falha.
 | #1 O guard de origem aceita o dashboard de desenvolvimento só na porta 5173, mas o `dev:web` do template não fixava a porta: com a 5173 ocupada o Vite sobe em outra, e todo POST e WebSocket do painel leva `403 origin_not_allowed` | `packages/web/package.json`: `dev` com `--strictPort`, como o launcher já faz; o README do template diz que o `dev:web` para se a porta estiver ocupada | `local-request-guard.test.ts`: o script `dev` tem `--strictPort` (antes: falha) e a porta dele está em `localWebOrigins({})`. Mutação: porta 5174 → falha |
 
 **Verificação (rodada 11):** `audit:deps` 0; `lint` 0; `typecheck` 0; `build` 0; `npm test` 0 (API 503, rotas `node:test` 27, web 125); `verify:release` 0; `test:e2e` 0.
+
+## `pre-pr-contradicoes` (rodada 12, `726847a`): 0 vivos, 9 refutados — limpo
+
+Nenhum achado sobreviveu à refutação. Refutados, mas anotados para o Allan (anteriores a esta branch
+ou observação de endurecimento, sem promessa quebrada pela mudança):
+
+- `Settings` mostra "configured from .env.local" para variáveis que o launcher não carrega desse
+  arquivo (rótulo antigo; a tela mostra "using built-in default" quando a variável falta).
+- `failInterruptedSessions` fecha como `failed` todas as sessões `running` do banco ao iniciar, não
+  só as do processo que morreu (relevante só com duas APIs no mesmo banco).
+- No modo launcher (painel na 5176) a API também aceita a origem `:5173`; restringir por modo pede
+  saber, na API, qual dashboard está em uso.
+- O caminho painel → proxy → guard com `Origin` real não é exercitado no e2e (o e2e chama o proxy sem
+  `Origin`; o guard tem testes próprios com `Origin`).
+- O mesmo reset de `restricted` só pela API (decisão registrada: sem botão no dashboard).
+
+## Encerramento das rodadas
+
+Rodadas 7 a 12 desta leva: 4 + 4 + 1 + 2 + 1 vivos, todos corrigidos com teste que falhava antes e
+checagem de mutação; a 12 saiu limpa. Continua com o Allan: a rodada extra do `reportFinding` depois
+da ação do passo (custo de modelo; a variante barata está anotada na rodada 7), A-04, A-05 e M-03,
+push e PR.
