@@ -1255,3 +1255,20 @@ O workflow em si só roda no GitHub; localmente foram rodados os mesmos comandos
   comandos (um por verificador), todos com saída 0.
 - Depois: 0 diretórios `agentic-platform-*` na pasta e 0 dos 245 da lista ainda existentes.
   **Espaço liberado: 11,81 GB.**
+
+## `pre-pr-contradicoes` na `p2-correcoes` (rodada 1, `768b30f`): 12 achados vivos, 2 refutados
+
+Os achados são, em sua maioria, contradições em código desta branch. Por isso foram corrigidos antes
+de fechar, em dois lotes.
+
+### Lote 1 · `.env.local`, `upgrade-local` e documentação — feito
+
+| Achado | Correção | Teste |
+|---|---|---|
+| #1 Uma linha `ANTHROPIC_API_KEY=` vazia (copiada do `.env.example`) impedia a reinstalação de gravar a chave resolvida, e o launcher exportava a chave vazia | Chave de provedor vazia conta como ausente: a linha sai e a chave resolvida entra | `testReinstallMergesEnvLocal`: a linha `OPENAI_API_KEY=` vazia é trocada pela chave nova, uma vez só |
+| #2 `upgrade-local` trocava o código mas o launcher mantinha o `node_modules` antigo (zod 3 com código que exige zod 4) | O launcher reinstala as dependências quando falta `node_modules` **ou** quando o `package-lock.json` difere do que foi instalado (cópia guardada em `node_modules/.agentic-qa-installed-lock.json`) | `testLauncherReinstallsDepsWhenLockChanges` roda o `ensure_workspace_deps` real com um `npm` falso: instala sem `node_modules`, não reinstala com o mesmo lock e reinstala com o lock alterado |
+| #7, #11 O upgrader procurava `DATABASE_URL` no `.env.local`, que o runtime não lê, e ignorava o banco do modo `dev:api` (`packages/api/persona-qa.db`) | `DATABASE_URL` vem do ambiente, como no runtime, e `packages/api/persona-qa.db` entra nos candidatos | `upgrade-local.test.ts`: o banco do `dev:api` também ganha backup e é migrado |
+| #3, #6, #10 Documentação dizia que o runtime lê variáveis do `.env.local`, mas o launcher só exporta as duas chaves de provedor | README, `docs/environment-variables.md` e `docs/generated-files.md` passam a dizer isso e a mandar exportar as outras variáveis no shell. O allowlist do launcher não foi ampliado (S-03) | `verify-env-docs` continua 79/79 |
+| #9, #12 README e documentação diziam que o `*_OVERRIDE` sempre vence, mas na reinstalação vence a chave já presente no `.env.local` | README (ordem das fontes), `environment-variables.md` e o comentário do instalador explicam que a ordem só decide uma chave ausente | — |
+
+**Verificação (lote 1):** `lint` 0; `typecheck` 0; `npm test` 0 (API 477, rotas `node:test` 27, web 121); `verify:release` 0; `test:e2e` 0.

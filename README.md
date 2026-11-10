@@ -154,9 +154,11 @@ The installer looks for the Anthropic key in these sources, in order. It uses th
 4. `ANTHROPIC_API`
 5. the target's `.agentic-qa/.env.local`
 
+On a reinstall or `upgrade-local`, a key already set in the target's `.agentic-qa/.env.local` is kept as it is; the order above only decides a key that is missing there (an empty `ANTHROPIC_API_KEY=` line counts as missing).
+
 The installer looks for the OpenAI key in these sources, in order: `agentic-platform/.env.local`, `OPENAI_API_KEY`, the target's `.agentic-qa/.env.local`. In the generated dashboard, **Settings** selects the provider for the next run.
 
-Runtime variables, read by the generated runtime:
+Runtime variables, read by the generated runtime. The launcher loads only `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` from `.agentic-qa/.env.local`; set the variables below in the environment you start the launcher from:
 
 | Variable | Used for |
 | --- | --- |

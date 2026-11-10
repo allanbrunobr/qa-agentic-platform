@@ -77,6 +77,9 @@ try {
   const dbFile = path.join(installed, 'persona-qa.db')
   writeOldDatabase(dbFile)
   const originalBytes = await readFile(dbFile)
+  // `npm run dev:api` runs the API from packages/api, so its database lives there.
+  const devDbFile = path.join(installed, 'packages', 'api', 'persona-qa.db')
+  writeOldDatabase(devDbFile)
   const adapterFile = path.join(installed, 'adapter', 'personas', 'personas.generated.json')
   await writeFile(adapterFile, '[{"id":"reviewed-by-hand"}]')
   await writeFile(path.join(installed, '.env.local'), 'PLAYWRIGHT_BASE_URL=http://127.0.0.1:4100\n')
@@ -94,6 +97,10 @@ try {
   db.close()
   const backupBytes = upgraded?.backup ? await readFile(path.join(installed, upgraded.backup)).catch(() => null) : null
   check(Boolean(backupBytes?.equals(originalBytes)), 'the database was backed up, byte for byte, before migrating')
+  const devUpgraded = result.databases.find((item) => item.path === path.join('packages', 'api', 'persona-qa.db'))
+  const devDb = new DatabaseSync(devDbFile)
+  check(Boolean(devUpgraded?.backup) && columns(devDb, 'p2_sessions').includes('run_id'), 'the dev:api database (packages/api) is backed up and migrated too')
+  devDb.close()
   check(JSON.stringify(upgraded?.applied) === JSON.stringify({ dashboard: [1], 'phase2-sessions': [1] }), `the applied migrations are reported (${JSON.stringify(upgraded?.applied)})`)
   check(await readFile(adapterFile, 'utf8') === '[{"id":"reviewed-by-hand"}]', 'adapter files reviewed by the user are untouched')
   check((await readFile(path.join(installed, '.env.local'), 'utf8')).includes('PLAYWRIGHT_BASE_URL=http://127.0.0.1:4100'), 'the user variables in .env.local are kept')
@@ -105,7 +112,7 @@ try {
   const again = await upgradeLocalPackage({ repoPath: repo, now: new Date('2026-11-10T13:00:00.000Z') })
   const second = again.databases.find((item) => item.path === 'persona-qa.db')
   check(second?.backup === null && JSON.stringify(second?.applied) === '{}', 'a second upgrade has nothing pending and makes no backup')
-  check((await readdir(installed)).filter((name) => name.includes('.pre-upgrade-')).length === 1, 'still exactly one backup')
+  check((await readdir(installed)).filter((name) => name.includes('.pre-upgrade-')).length === 1, 'still exactly one backup of the main database')
 
   // 4. A database from a newer runtime: refused before any write, the installed code included.
   const newer = await tempRepo('newer')

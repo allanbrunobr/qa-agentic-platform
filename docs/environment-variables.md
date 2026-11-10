@@ -4,8 +4,9 @@ Every environment variable the code reads, grouped by where it is read. `npm run
 of `npm run test:unit`) fails when the code reads a variable that is not listed here. How the check
 finds variables is described in `scripts/verify-env-docs.mjs`.
 
-Variables of the installed runtime (`.agentic-qa`) are read from the process environment and from
-`.agentic-qa/.env.local`, which `install-local` writes with the provider keys only.
+Variables of the installed runtime (`.agentic-qa`) are read from the process environment. The launcher
+loads only `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` from `.agentic-qa/.env.local`; any other variable
+must be set in the environment the launcher (or `upgrade-local`) is started from.
 
 ## Provider keys and models
 
@@ -13,7 +14,7 @@ Variables of the installed runtime (`.agentic-qa`) are read from the process env
 |---|---|---|
 | `ANTHROPIC_API_KEY` | runtime, installer, LLM discovery | Anthropic key. The installer copies it into `.agentic-qa/.env.local`. |
 | `ANTHROPIC_API` | runtime, installer | Legacy alias of `ANTHROPIC_API_KEY`. |
-| `ANTHROPIC_API_KEY_OVERRIDE` | installer | When set (even empty), wins over every other key source at install time. Empty means "no key". |
+| `ANTHROPIC_API_KEY_OVERRIDE` | installer | When set (even empty), wins over every other key source at install time. Empty means "no key". A key already in the target's `.agentic-qa/.env.local` is kept on reinstall. |
 | `OPENAI_API_KEY` | runtime, installer | OpenAI key. The installer copies it into `.agentic-qa/.env.local`. |
 | `OPENAI_API_KEY_OVERRIDE` | installer | Same as `ANTHROPIC_API_KEY_OVERRIDE`, for the OpenAI key. |
 | `OPENAI_BASE_URL` | runtime | Base URL of the OpenAI-compatible API. **The OpenAI key is sent there.** Default `https://api.openai.com/v1`. |
@@ -47,7 +48,7 @@ Variables of the installed runtime (`.agentic-qa`) are read from the process env
 | `AGENTIC_QA_API_TOKEN_PATH` | File holding the runtime API token. The Vite proxy reads it to add `x-agentic-token`. |
 | `AGENTIC_QA_API_URL` | Runtime API the dashboard's Vite proxy forwards to. |
 | `AGENTIC_QA_CLI_ENV_ALLOWLIST` | Comma-separated extra variable names passed to the target CLI; by default secrets are not passed. |
-| `DATABASE_URL` | SQLite file of the runtime. Default `./persona-qa.db`. |
+| `DATABASE_URL` | SQLite file of the runtime, relative to the API's working directory (`.agentic-qa` with the launcher, `.agentic-qa/packages/api` with `dev:api`). Default `./persona-qa.db`. Read from the environment only. `upgrade-local` reads it from its own environment. |
 
 ## Installed runtime: target, adapter and scenarios
 

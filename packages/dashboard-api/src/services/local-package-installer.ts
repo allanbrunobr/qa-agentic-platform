@@ -131,6 +131,7 @@ async function writeInstalledDocs(installedPath: string) {
 
 /**
  * T-06: an *_OVERRIDE variable that is set wins over every other key source, even when it is empty.
+ * On reinstall, a key already in the target's .env.local is still kept (see parseUserEnvLines).
  * An empty override means "no key": the release gate uses it so that a developer key in the platform
  * .env.local or in the environment never reaches the throwaway repositories it installs into.
  */
@@ -257,6 +258,8 @@ function parseUserEnvLines(text: string): { lines: string[]; values: Record<stri
     if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
       value = value.slice(1, -1)
     }
+    // An empty provider key (copied from .env.example, say) counts as missing, so a resolved key replaces it.
+    if (value === '' && (match[1] === 'ANTHROPIC_API_KEY' || match[1] === 'OPENAI_API_KEY')) continue
     if (match[1]! in values) continue
     values[match[1]!] = value
     lines.push(line)
@@ -674,9 +677,11 @@ export async function installLocalPackage(input: { repoPath: string }) {
       'done',
       '',
       'ensure_workspace_deps() {',
-      '  if [ ! -d "${ROOT_DIR}/node_modules" ]; then',
+      '  # Install when node_modules is missing or was installed from another package-lock.json (after',
+      '  # upgrade-local, say): the runtime code must not run on the dependencies of an older version.',
+      '  if [ ! -d "${ROOT_DIR}/node_modules" ] || ! cmp -s "${ROOT_DIR}/package-lock.json" "${ROOT_DIR}/node_modules/.agentic-qa-installed-lock.json"; then',
       '    echo "[.agentic-qa] installing workspace deps in ${ROOT_DIR}"',
-      '    (cd "${ROOT_DIR}" && npm install --legacy-peer-deps)',
+      '    (cd "${ROOT_DIR}" && npm install --legacy-peer-deps && cp package-lock.json node_modules/.agentic-qa-installed-lock.json)',
       '  fi',
       '}',
       '',

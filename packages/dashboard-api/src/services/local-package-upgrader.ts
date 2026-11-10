@@ -11,7 +11,8 @@
  *    (`<db>.pre-upgrade-<timestamp>.bak`) before its migrations run, each in its own transaction.
  * 5. The upgrade is recorded in the install metadata.
  *
- * A database outside .agentic-qa (a DATABASE_URL pointing elsewhere) is reported and left alone.
+ * Databases are looked for where the runtime opens them (see findRuntimeDatabases). One outside
+ * .agentic-qa (a DATABASE_URL pointing elsewhere) is reported and left alone.
  */
 import { copyFile, lstat, readFile, writeFile } from 'node:fs/promises'
 import { constants as fsConstants } from 'node:fs'
@@ -61,22 +62,19 @@ async function isRegularFile(filePath: string): Promise<boolean> {
   return Boolean(stat?.isFile())
 }
 
-function readEnvValue(text: string, name: string): string | undefined {
-  for (const rawLine of text.split(/\r?\n/)) {
-    const match = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=(.*)$/.exec(rawLine)
-    if (!match || match[1] !== name) continue
-    const value = match[2]!.trim()
-    return (value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'")) ? value.slice(1, -1) : value
-  }
-  return undefined
-}
-
-/** The runtime's databases: where the API (cwd .agentic-qa) opens them by default or via DATABASE_URL. */
+/**
+ * The runtime's databases. The API opens `process.env.DATABASE_URL ?? './persona-qa.db'` relative to
+ * its working directory: .agentic-qa with the launcher, .agentic-qa/packages/api with `npm run
+ * dev:api`. The launcher exports only the provider keys from .env.local, so DATABASE_URL can only
+ * come from the environment; run upgrade-local with the same environment as the runtime.
+ */
 async function findRuntimeDatabases(installedPath: string) {
-  const envText = await readFile(path.join(installedPath, '.env.local'), 'utf8').catch(() => '')
-  const configured = readEnvValue(envText, 'DATABASE_URL')
-  const candidates = new Set<string>([path.join(installedPath, 'persona-qa.db')])
+  const candidates = new Set<string>([
+    path.join(installedPath, 'persona-qa.db'),
+    path.join(installedPath, 'packages', 'api', 'persona-qa.db'),
+  ])
   const skipped: Array<{ path: string; reason: string }> = []
+  const configured = process.env['DATABASE_URL']
   if (configured && configured !== ':memory:') {
     const resolved = path.resolve(installedPath, configured)
     const relative = path.relative(installedPath, resolved)

@@ -724,6 +724,8 @@ async function testReinstallMergesEnvLocal() {
       '# my notes',
       'PLAYWRIGHT_BASE_URL=http://127.0.0.1:4100',
       'ANTHROPIC_API_KEY="sk-ant-user-chosen"',
+      // Copied from .env.example: an empty key counts as missing.
+      'OPENAI_API_KEY=',
       'echo PLANTED',
       '',
     ].join('\n'))
@@ -738,7 +740,7 @@ async function testReinstallMergesEnvLocal() {
     assert(merged.includes('ANTHROPIC_API_KEY="sk-ant-user-chosen"') && !merged.includes('sk-ant-new-from-install'), 'reinstall does not overwrite a key already in .env.local')
     assert(merged.includes('OPENAI_API_KEY="sk-openai-new-from-install"'), 'reinstall adds a provider key that was missing')
     assert(!merged.includes('PLANTED'), 'a line that is not an assignment is dropped')
-    assert((merged.match(/^ANTHROPIC_API_KEY=/gm) ?? []).length === 1, 'each key appears once')
+    assert((merged.match(/^ANTHROPIC_API_KEY=/gm) ?? []).length === 1 && (merged.match(/^OPENAI_API_KEY=/gm) ?? []).length === 1, 'each key appears once, and the empty OPENAI_API_KEY= line was replaced')
     assert(result.anthropicEnvSource === 'target/.agentic-qa/.env.local', `metadata reports the key that is in effect (got ${result.anthropicEnvSource})`)
     assert(((await stat(envPath)).mode & 0o777) === 0o600, 'merged .env.local stays mode 0600')
   } finally {
@@ -747,6 +749,51 @@ async function testReinstallMergesEnvLocal() {
       else process.env[key] = savedEnv[key]
     }
     await rm(repo, { recursive: true, force: true })
+  }
+}
+
+/**
+ * After upgrade-local the runtime code is new but node_modules was installed for the old
+ * package-lock.json. The launcher must reinstall then, and only then. Runs the launcher's own
+ * ensure_workspace_deps with a stub npm that records each call.
+ */
+async function testLauncherReinstallsDepsWhenLockChanges() {
+  const keys = ['ANTHROPIC_API_KEY_OVERRIDE', 'OPENAI_API_KEY_OVERRIDE', 'AGENTIC_QA_SKIP_KEY_VALIDATION']
+  const savedEnv = Object.fromEntries(keys.map((key) => [key, process.env[key]]))
+  process.env.ANTHROPIC_API_KEY_OVERRIDE = ''
+  process.env.OPENAI_API_KEY_OVERRIDE = ''
+  process.env.AGENTIC_QA_SKIP_KEY_VALIDATION = '1'
+  const repo = await mkdtemp(path.join(tmpdir(), 'agentic-deps-'))
+  const stubBin = await mkdtemp(path.join(tmpdir(), 'agentic-npm-stub-'))
+  try {
+    await installLocalPackage({ repoPath: repo })
+    const root = path.join(repo, '.agentic-qa')
+    const launcher = await readFile(path.join(root, 'scripts', 'start-local-dashboard.generated.sh'), 'utf8')
+    const fnStart = launcher.indexOf('ensure_workspace_deps() {')
+    const fn = launcher.slice(fnStart, launcher.indexOf('\n}\n', fnStart) + 2)
+    const calls = path.join(stubBin, 'calls.log')
+    // A stub npm: records the call and "installs" by creating node_modules.
+    await writeFile(path.join(stubBin, 'npm'), `#!/bin/sh\necho "$*" >> "${calls}"\nmkdir -p node_modules\n`, { mode: 0o755 })
+    const runDeps = () => spawnSync('bash', ['-euc', `ROOT_DIR="${root}"\n${fn}\nensure_workspace_deps`], {
+      encoding: 'utf8',
+      env: { PATH: `${stubBin}:${process.env.PATH}` },
+    })
+    const npmCalls = async () => (await readFile(calls, 'utf8').catch(() => '')).split('\n').filter(Boolean).length
+
+    const first = runDeps()
+    assert(first.status === 0 && await npmCalls() === 1, `launcher installs dependencies when node_modules is missing (${first.stderr})`)
+    runDeps()
+    assert(await npmCalls() === 1, 'launcher does not reinstall when package-lock.json is the one it installed')
+    await writeFile(path.join(root, 'package-lock.json'), `${await readFile(path.join(root, 'package-lock.json'), 'utf8')}\n`)
+    runDeps()
+    assert(await npmCalls() === 2, 'launcher reinstalls when package-lock.json changed (after upgrade-local)')
+  } finally {
+    for (const key of keys) {
+      if (savedEnv[key] === undefined) delete process.env[key]
+      else process.env[key] = savedEnv[key]
+    }
+    await rm(repo, { recursive: true, force: true })
+    await rm(stubBin, { recursive: true, force: true })
   }
 }
 
@@ -787,6 +834,7 @@ await testProviderKeyIsolation()
 await testInstalledSourceMatchesTemplate()
 await testDiscoveryKeepsInstallMetadata()
 await testReinstallMergesEnvLocal()
+await testLauncherReinstallsDepsWhenLockChanges()
 if (failed > 0) {
   console.error(`\n${failed} hardening check(s) failed`)
   process.exit(1)
