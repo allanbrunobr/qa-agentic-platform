@@ -123,6 +123,19 @@ seguinte:**
    enquanto o dashboard roda (ver o limite acima). Comentário e docs foram corrigidos. A correção de
    fato exige login no dashboard e fica como decisão do Allan.
 
+**Achados da segunda checagem pré-PR, corrigidos no commit seguinte:**
+
+3. O launcher sobrescrevia `AGENTIC_QA_WEB_ORIGIN`, embora README e SECURITY.md o apresentassem
+   como origens extras definidas pelo usuário. Agora o launcher acrescenta as origens desta
+   execução às do usuário. O teste de hardening executa a linha gerada com `bash -eu`, com e sem
+   valor do usuário. Na mutação (linha antiga), o teste falha.
+4. B-02 em repositórios de API: o `targetBaseUrl` do run aparecia no evento do run, mas as sondas
+   HTTP (`callHealthEndpoint`, `callPrimaryEndpoint`, `startApiService`) usavam
+   `GENERIC_API_BASE_URL`. Agora o runner repassa a URL quando o run a pede explicitamente, e as
+   tools a preferem; o ambiente continua como fallback. `execution-target.test.ts` ganhou 2 casos
+   com servidores HTTP reais. Antes da correção, o caso principal falhava porque a sonda ia ao
+   servidor do ambiente.
+
 ## S-02 · Discovery escreve e apaga fora do repositório via symlink — feito
 
 **O que mudou**

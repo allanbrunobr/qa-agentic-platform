@@ -1,4 +1,6 @@
 import { mkdtemp, writeFile } from 'node:fs/promises'
+import http from 'node:http'
+import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -116,6 +118,67 @@ describe('generated repository tools inspect the run target', () => {
         testEntrypoints: expect.objectContaining({ scripts: { test: 'echo requested' } }),
       }))
     }
+  })
+})
+
+describe('generated API tools probe the run target', () => {
+  const API_ENV_KEYS = ['GENERIC_API_BASE_URL', 'TARGET_API_BASE_URL', 'API_BASE_URL'] as const
+  const savedApiEnv: Record<string, string | undefined> = {}
+  const servers: http.Server[] = []
+
+  beforeEach(() => {
+    for (const key of API_ENV_KEYS) savedApiEnv[key] = process.env[key]
+  })
+  afterEach(async () => {
+    for (const key of API_ENV_KEYS) {
+      if (savedApiEnv[key] === undefined) delete process.env[key]
+      else process.env[key] = savedApiEnv[key]
+    }
+    await Promise.all(servers.splice(0).map((server) => new Promise((resolve) => server.close(resolve))))
+  })
+
+  async function recordingServer(status: number) {
+    const hits: string[] = []
+    const server = http.createServer((request, response) => {
+      hits.push(request.url ?? '')
+      response.writeHead(status, { 'content-type': 'application/json' })
+      response.end('{}')
+    })
+    servers.push(server)
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()))
+    return { hits, url: `http://127.0.0.1:${(server.address() as AddressInfo).port}` }
+  }
+
+  it('calls the run base URL instead of GENERIC_API_BASE_URL', async () => {
+    const envApi = await recordingServer(200)
+    const requestedApi = await recordingServer(500)
+    process.env.GENERIC_API_BASE_URL = envApi.url
+    const registry = new ToolRegistry()
+    registerGeneratedAdapterTools(registry)
+
+    const result = await registry.execute('callHealthEndpoint', {}, { browserAccess: false }, {
+      executionTarget: { baseUrl: requestedApi.url },
+    })
+
+    expect(result.ok).toBe(true)
+    expect(requestedApi.hits.length).toBe(1)
+    expect(envApi.hits.length).toBe(0)
+    if (result.ok) {
+      expect(result.output).toEqual(expect.objectContaining({
+        apiResponse: expect.objectContaining({ status: 500 }),
+      }))
+    }
+  })
+
+  it('keeps GENERIC_API_BASE_URL as the fallback when the run has no target', async () => {
+    const envApi = await recordingServer(200)
+    process.env.GENERIC_API_BASE_URL = envApi.url
+    const registry = new ToolRegistry()
+    registerGeneratedAdapterTools(registry)
+
+    await registry.execute('callPrimaryEndpoint', {}, { browserAccess: false }, {})
+
+    expect(envApi.hits.length).toBe(1)
   })
 })
 

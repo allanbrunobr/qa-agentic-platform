@@ -155,7 +155,7 @@ export function registerGeneratedAdapterTools(registry: ToolRegistry): void {
 
 const startApiServiceHandler: ToolHandler = async (_input, context): Promise<ToolResult> => {
   const targetRepoPath = targetRepoPathFor(context)
-  const baseUrl = resolveApiBaseUrl()
+  const baseUrl = resolveApiBaseUrl(context)
   const runtimePlan = readGeneratedAdapterJson<RuntimePlan>('runtime/runtime-plan.generated.json')
 
   return ok({
@@ -175,14 +175,14 @@ const startApiServiceHandler: ToolHandler = async (_input, context): Promise<Too
   })
 }
 
-const callHealthEndpointHandler: ToolHandler = async (input: unknown): Promise<ToolResult> => {
+const callHealthEndpointHandler: ToolHandler = async (input: unknown, context): Promise<ToolResult> => {
   const endpointPath = normalizeEndpointPath(input, detectHealthEndpointPath())
-  return ok({ apiResponse: await callEndpoint(endpointPath) })
+  return ok({ apiResponse: await callEndpoint(endpointPath, context) })
 }
 
-const callPrimaryEndpointHandler: ToolHandler = async (input: unknown): Promise<ToolResult> => {
+const callPrimaryEndpointHandler: ToolHandler = async (input: unknown, context): Promise<ToolResult> => {
   const endpointPath = normalizeEndpointPath(input, detectPrimaryEndpointPath())
-  return ok({ apiResponse: await callEndpoint(endpointPath) })
+  return ok({ apiResponse: await callEndpoint(endpointPath, context) })
 }
 
 const verifyApiResponseHandler: ToolHandler = async (_input, context): Promise<ToolResult> => {
@@ -845,7 +845,10 @@ function ok(output: Record<string, unknown>): ToolResult {
   return { ok: true, output }
 }
 
-function resolveApiBaseUrl(): string | null {
+/** The run's target (execution_context.targetBaseUrl) first; the launch environment is the fallback. */
+function resolveApiBaseUrl(context?: ToolContext): string | null {
+  const requested = context?.executionTarget?.baseUrl
+  if (requested) return requested
   return process.env['GENERIC_API_BASE_URL']
     ?? process.env['TARGET_API_BASE_URL']
     ?? process.env['API_BASE_URL']
@@ -883,8 +886,8 @@ function detectPrimaryEndpointPath(): string {
   return typeof nonRootRoute?.path === 'string' ? nonRootRoute.path : '/'
 }
 
-async function callEndpoint(endpointPath: string): Promise<Record<string, unknown>> {
-  const baseUrl = resolveApiBaseUrl()
+async function callEndpoint(endpointPath: string, context?: ToolContext): Promise<Record<string, unknown>> {
+  const baseUrl = resolveApiBaseUrl(context)
   if (!baseUrl) {
     return {
       executed: false,

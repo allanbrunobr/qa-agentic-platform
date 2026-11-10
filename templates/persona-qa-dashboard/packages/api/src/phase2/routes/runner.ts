@@ -136,11 +136,14 @@ export async function phase2RunnerRoutes(app: FastifyInstance): Promise<void> {
         // runtime keeps it out of the model prompt.
         if (useGeneratedNonFrontendRuntime) {
           const targetRepoPath = executionContext?.targetRepoPath ?? resolveGeneratedTargetRepoPath()
+          // Only a base URL the run asked for explicitly: without one, API probes keep using
+          // GENERIC_API_BASE_URL (PLAYWRIGHT_BASE_URL is a frontend default, not an API base).
+          const requestedBaseUrl = resolveExecutionBaseUrl(executionContext)
           await runtime.orchestrator.executeRunInSession(session.id, scenario, {
             ...seedArtifacts,
             targetRepoPath,
             runtimeMode: 'generated_non_browser',
-            executionTarget: { targetRepoPath },
+            executionTarget: { targetRepoPath, ...(requestedBaseUrl ? { baseUrl: requestedBaseUrl } : {}) },
           })
           return
         }

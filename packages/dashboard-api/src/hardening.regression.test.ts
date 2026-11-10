@@ -247,6 +247,25 @@ async function testInstaller() {
       !launcher.includes('. "${ENV_FILE}"') && !launcher.includes('source "${ENV_FILE}"') && !/^\s*(?:source|\.)\s+/m.test(launcher),
       'launcher does not source .env.local',
     )
+    // The launcher adds this launch's dashboard origins to any the user exported, instead of replacing them.
+    const originLine = launcher.split('\n').find((line) => line.startsWith('export AGENTIC_QA_WEB_ORIGIN='))
+    assert(originLine, 'launcher exports AGENTIC_QA_WEB_ORIGIN')
+    const originsWith = spawnSync('bash', ['-euc', `${originLine}\nprintf %s "$AGENTIC_QA_WEB_ORIGIN"`], {
+      encoding: 'utf8',
+      env: { PATH: process.env.PATH, WEB_PORT: '5176', AGENTIC_QA_WEB_ORIGIN: 'http://localhost:8080' },
+    })
+    assert(
+      originsWith.stdout === 'http://127.0.0.1:5176,http://localhost:5176,http://localhost:8080',
+      `launcher keeps the user's extra dashboard origin (got ${JSON.stringify(originsWith.stdout || originsWith.stderr)})`,
+    )
+    const originsWithout = spawnSync('bash', ['-euc', `${originLine}\nprintf %s "$AGENTIC_QA_WEB_ORIGIN"`], {
+      encoding: 'utf8',
+      env: { PATH: process.env.PATH, WEB_PORT: '5176' },
+    })
+    assert(
+      originsWithout.stdout === 'http://127.0.0.1:5176,http://localhost:5176',
+      `launcher origins without a user value under set -u (got ${JSON.stringify(originsWithout.stdout || originsWithout.stderr)})`,
+    )
     const loadEnvSyntax = spawnSync(process.execPath, ['--check', loadEnvScript], { encoding: 'utf8' })
     assert(loadEnvSyntax.status === 0, `load-env.generated.mjs parses: ${loadEnvSyntax.stderr}`)
     assert(installedPackage.engines?.node === '>=22.13.0', 'installed package engine matches the platform')
