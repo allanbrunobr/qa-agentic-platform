@@ -10,6 +10,7 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { isolatedProviderEnv } from './provider-isolation.mjs'
 
 export const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const exampleDir = path.join(repoRoot, 'examples/storefront')
@@ -97,7 +98,7 @@ export async function startStorefrontRuntime({ log, keepDir = false }) {
     const result = spawnSync(process.execPath, ['--import', tsxLoader, 'packages/dashboard-api/src/cli.ts', command, targetDir], {
       cwd: repoRoot,
       encoding: 'utf8',
-      env: { ...process.env, ANTHROPIC_API_KEY: '', OPENAI_API_KEY: '' },
+      env: { ...process.env, ...isolatedProviderEnv() },
     })
     if (result.status !== 0) {
       throw new Error(`${command} failed (exit ${result.status}):\n${result.stdout}\n${result.stderr}`)

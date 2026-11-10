@@ -5,6 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { isolatedProviderEnv } from './lib/provider-isolation.mjs'
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.resolve(scriptDir, '..')
@@ -20,17 +21,11 @@ const preferredNodeBin = process.env.AGENTIC_RELEASE_NODE_BIN
 const preferredNodePath = path.join(preferredNodeBin, 'node')
 const nodePath = fs.existsSync(preferredNodePath) ? preferredNodePath : process.execPath
 // The deterministic smoke never calls a model provider, but install-local only writes
-// .agentic-qa/.env.local when a provider key resolves. Use a placeholder when none is configured.
-const hasProviderKey = Boolean(
-  process.env.ANTHROPIC_API_KEY_OVERRIDE
-  || process.env.ANTHROPIC_API_KEY
-  || process.env.ANTHROPIC_API
-  || process.env.OPENAI_API_KEY
-  || fs.existsSync(path.join(repoRoot, '.env.local')),
-)
+// .agentic-qa/.env.local when a provider key resolves. Always use a placeholder: a developer key
+// must not be validated over the network or copied into the temp fixture (T-06).
 const verificationEnv = {
   ...process.env,
-  ...(hasProviderKey ? {} : { ANTHROPIC_API_KEY: 'sk-ant-verification-placeholder' }),
+  ...isolatedProviderEnv({ anthropicKey: 'sk-ant-verification-placeholder' }),
   PATH: fs.existsSync(preferredNodePath)
     ? `${preferredNodeBin}${path.delimiter}${process.env.PATH ?? ''}`
     : process.env.PATH,

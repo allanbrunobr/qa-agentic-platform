@@ -129,9 +129,22 @@ async function writeInstalledDocs(installedPath: string) {
   )
 }
 
+/**
+ * T-06: an *_OVERRIDE variable that is set wins over every other key source, even when it is empty.
+ * An empty override means "no key": the release gate uses it so that a developer key in the platform
+ * .env.local or in the environment never reaches the throwaway repositories it installs into.
+ */
+function envOverride(name: string): string | undefined {
+  return Object.prototype.hasOwnProperty.call(process.env, name) ? process.env[name] ?? '' : undefined
+}
+
 async function validateAnthropicApiKey(apiKey: string) {
   if (!apiKey) {
     return { ok: false, message: 'missing Anthropic API key' } as const
+  }
+  // T-06: offline installs (the release gate) must not reach the provider over the network.
+  if (process.env.AGENTIC_QA_SKIP_KEY_VALIDATION === '1') {
+    return { ok: false, message: 'Anthropic key validation skipped (AGENTIC_QA_SKIP_KEY_VALIDATION=1).' } as const
   }
 
   try {
@@ -255,8 +268,9 @@ async function resolveAnthropicKey(repoPath: string): Promise<{
     | 'target/.agentic-qa/.env.local'
     | 'missing'
 }> {
-  if (process.env.ANTHROPIC_API_KEY_OVERRIDE) {
-    return { key: process.env.ANTHROPIC_API_KEY_OVERRIDE, source: 'ANTHROPIC_API_KEY_OVERRIDE' }
+  const override = envOverride('ANTHROPIC_API_KEY_OVERRIDE')
+  if (override !== undefined) {
+    return { key: override, source: 'ANTHROPIC_API_KEY_OVERRIDE' }
   }
 
   const platformEnv = await readEnvFile(path.resolve(process.cwd(), '.env.local'))
@@ -283,11 +297,17 @@ async function resolveAnthropicKey(repoPath: string): Promise<{
 async function resolveOpenAIKey(repoPath: string): Promise<{
   key: string
   source:
+    | 'OPENAI_API_KEY_OVERRIDE'
     | 'agentic-platform/.env.local'
     | 'OPENAI_API_KEY'
     | 'target/.agentic-qa/.env.local'
     | 'missing'
 }> {
+  const override = envOverride('OPENAI_API_KEY_OVERRIDE')
+  if (override !== undefined) {
+    return { key: override, source: 'OPENAI_API_KEY_OVERRIDE' }
+  }
+
   const platformEnv = await readEnvFile(path.resolve(process.cwd(), '.env.local'))
   if (platformEnv.OPENAI_API_KEY) {
     return { key: platformEnv.OPENAI_API_KEY, source: 'agentic-platform/.env.local' }

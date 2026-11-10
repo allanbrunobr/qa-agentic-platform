@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { isolatedProviderEnv } from './lib/provider-isolation.mjs'
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.resolve(scriptDir, '..')
@@ -22,8 +23,7 @@ const verificationEnv = {
   PATH: fs.existsSync(preferredNodePath)
     ? `${preferredNodeBin}${path.delimiter}${process.env.PATH ?? ''}`
     : process.env.PATH,
-  ANTHROPIC_API_KEY: '',
-  ANTHROPIC_API: '',
+  ...isolatedProviderEnv(),
 }
 
 // Ensure the host-local runtime template has its dependencies (better-sqlite3 etc.)

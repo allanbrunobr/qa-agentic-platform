@@ -489,3 +489,44 @@ espera, por exemplo) não é interrompida no meio; o que o passo impede é a pr�
   cross-site falha; sem a de token, o caso sem token falha.
 
 **Verificação:** `typecheck` 0 (agora com os testes do runtime); `npm test` 0 (API 458, web 120); `verify:release` 0; `test:e2e` 0.
+
+## T-06 · Release gate validava chave na rede e podia copiar a chave real — feito
+
+**O que mudou**
+
+- O alcance era maior do que o relatório descreve. O instalador lê primeiro o `.env.local` da
+  plataforma (cwd) e só depois o ambiente. Por isso, zerar `ANTHROPIC_API_KEY` no ambiente, como
+  faziam dois verificadores, não impedia que uma chave real desse arquivo fosse validada na rede e
+  gravada na fixture temporária. O `verify-generic-repository-types` nem zerava. A chave OpenAI
+  seguia o mesmo caminho e não tinha override.
+- Instalador (`local-package-installer.ts`):
+  - `ANTHROPIC_API_KEY_OVERRIDE` e o novo `OPENAI_API_KEY_OVERRIDE` vencem qualquer outra fonte
+    quando estão definidos, mesmo vazios. Vazio significa "sem chave". Antes, o override vazio era
+    ignorado.
+  - Com `AGENTIC_QA_SKIP_KEY_VALIDATION=1`, a validação não faz `fetch` e o resultado diz
+    "skipped".
+- `scripts/lib/provider-isolation.mjs` define esse ambiente, aplicado aos quatro pontos que rodam
+  `install-local`: `verify-generic-frontend`, `verify-generic-runtime-execution`,
+  `verify-generic-repository-types` e `storefront-runtime` (e2e). O `verify-generic-frontend` usa
+  sempre o placeholder, e não mais "o placeholder só se não houver chave".
+
+**Testes**
+
+- `testProviderKeyIsolation` em `hardening.regression.test.ts`. O instalador roda com o cwd num
+  diretório temporário que tem um `.env.local` de plataforma plantado (o real nunca é lido), com
+  chaves também no ambiente e com o `fetch` trocado por um espião.
+- No código antigo, falharam: chamada de rede feita, validação não marcada como pulada e chave
+  OpenAI do `.env.local` plantado gravada na fixture.
+- Checagem do instrumento: sem a flag, o mesmo espião vê exatamente uma validação.
+
+**Medição no verificador real:** `verify-generic-frontend` rodado com `ANTHROPIC_API_KEY` e
+`OPENAI_API_KEY` fictícias no ambiente.
+
+- Saiu com 0 e reportou "validation skipped".
+- O `.env.local` da fixture tem o placeholder e nenhuma das duas chaves fictícias.
+- O verificador antigo não foi rodado com a chave fictícia, porque mandaria essa chave à API da
+  Anthropic. O 401 dele já estava medido no relatório.
+
+**Fora deste item:** a fixture continua ficando em `/tmp` depois da execução (T-07, P3).
+
+**Verificação:** `typecheck` 0; `npm test` 0 (API 458, web 120); `verify:release` 0, sem nenhuma linha de validação com falha nem menção a `api.anthropic` no log; `test:e2e` 0.

@@ -605,6 +605,55 @@ async function testControlPlaneRebinding() {
   }
 }
 
+/**
+ * T-06: the release gate must not validate a provider key over the network, and no developer key (from
+ * the platform .env.local or the environment) may reach the throwaway fixture it installs into.
+ */
+async function testProviderKeyIsolation() {
+  const keys = ['ANTHROPIC_API_KEY', 'ANTHROPIC_API', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY_OVERRIDE', 'OPENAI_API_KEY_OVERRIDE', 'AGENTIC_QA_SKIP_KEY_VALIDATION']
+  const savedEnv = Object.fromEntries(keys.map((key) => [key, process.env[key]]))
+  const previousFetch = globalThis.fetch
+  const previousCwd = process.cwd()
+  const fetched: string[] = []
+  globalThis.fetch = (async (input: unknown) => {
+    fetched.push(String(input))
+    return new Response('{}', { status: 401 })
+  }) as typeof fetch
+  // A stand-in for the platform checkout, with a developer key in its .env.local (the real one is never read).
+  const platformDir = await mkdtemp(path.join(tmpdir(), 'agentic-platform-env-'))
+  await writeFile(path.join(platformDir, '.env.local'), 'ANTHROPIC_API_KEY=sk-ant-from-platform-file\nOPENAI_API_KEY=sk-openai-from-platform-file\n')
+  const isolated = await mkdtemp(path.join(tmpdir(), 'agentic-isolated-'))
+  const validated = await mkdtemp(path.join(tmpdir(), 'agentic-validated-'))
+  try {
+    process.chdir(platformDir)
+    process.env.ANTHROPIC_API_KEY = 'sk-ant-from-environment'
+    process.env.OPENAI_API_KEY = 'sk-openai-from-environment'
+    process.env.ANTHROPIC_API_KEY_OVERRIDE = 'sk-ant-verification-placeholder'
+    process.env.OPENAI_API_KEY_OVERRIDE = ''
+    process.env.AGENTIC_QA_SKIP_KEY_VALIDATION = '1'
+
+    const result = await installLocalPackage({ repoPath: isolated })
+    const envLocal = await readFile(path.join(isolated, '.agentic-qa', '.env.local'), 'utf8')
+    assert(fetched.length === 0, `install with AGENTIC_QA_SKIP_KEY_VALIDATION=1 makes no network call (got ${JSON.stringify(fetched)})`)
+    assert(/skipped/i.test(result.anthropicEnvValidationMessage), `install reports the validation as skipped (got ${JSON.stringify(result.anthropicEnvValidationMessage)})`)
+    assert(envLocal.includes('ANTHROPIC_API_KEY="sk-ant-verification-placeholder"'), 'the Anthropic override wins over the platform .env.local and the environment')
+    assert(!envLocal.includes('from-platform-file') && !envLocal.includes('from-environment'), 'no developer key reaches the installed .env.local, including the OpenAI one')
+
+    // Instrument check: without the skip flag the same stub does see the validation request.
+    delete process.env.AGENTIC_QA_SKIP_KEY_VALIDATION
+    await installLocalPackage({ repoPath: validated })
+    assert(fetched.length === 1 && fetched[0]!.startsWith('https://api.anthropic.com/'), `without the flag the key is validated (stubbed) once (got ${JSON.stringify(fetched)})`)
+  } finally {
+    process.chdir(previousCwd)
+    globalThis.fetch = previousFetch
+    for (const key of keys) {
+      if (savedEnv[key] === undefined) delete process.env[key]
+      else process.env[key] = savedEnv[key]
+    }
+    for (const dir of [platformDir, isolated, validated]) await rm(dir, { recursive: true, force: true })
+  }
+}
+
 console.log('Running hardening regression tests...\n')
 await testControlPlane()
 await testControlPlaneRebinding()
@@ -613,6 +662,7 @@ await testSessionStore()
 await testRedactionAndDiscovery()
 await testInstaller()
 await testDiscoveryConfinement()
+await testProviderKeyIsolation()
 if (failed > 0) {
   console.error(`\n${failed} hardening check(s) failed`)
   process.exit(1)
