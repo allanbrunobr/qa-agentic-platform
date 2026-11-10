@@ -123,7 +123,7 @@ function parseToolArguments(raw: string): unknown {
   }
 }
 
-function fromOpenAIResponse(response: OpenAIChatCompletionResponse): ModelResponse {
+export function fromOpenAIResponse(response: OpenAIChatCompletionResponse): ModelResponse {
   const choice = response.choices[0]
   const toolCalls: ToolCall[] = (choice?.message.tool_calls ?? []).map((toolCall) => ({
     id: toolCall.id,
@@ -131,11 +131,13 @@ function fromOpenAIResponse(response: OpenAIChatCompletionResponse): ModelRespon
     input: parseToolArguments(toolCall.function.arguments),
   }))
 
-  const stopReason = choice?.finish_reason === 'tool_calls'
-    ? 'tool_use'
-    : choice?.finish_reason === 'length'
-      ? 'max_tokens'
-      : 'end_turn'
+  const finishReason = choice?.finish_reason
+  const stopReason: ModelResponse['stopReason'] =
+    finishReason === 'tool_calls' || finishReason === 'function_call' ? 'tool_use'
+    : finishReason === 'length' ? 'max_tokens'
+    : finishReason === 'content_filter' ? 'refusal'
+    : finishReason === 'stop' || finishReason === undefined || finishReason === null ? 'end_turn'
+    : 'incomplete'
 
   return {
     text: choice?.message.content ?? undefined,

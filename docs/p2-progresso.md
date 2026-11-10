@@ -107,3 +107,34 @@ com o runtime instalado lendo o `AGENTIC.md` copiado para `.agentic-qa`.
 
 **Efeito esperado:** a partir daqui, as regras "execute só o passo atual" e "não declare sucesso
 cedo" chegam ao modelo, e o S-04 (saída de tool como dado, não instrução) pode se apoiar nelas.
+
+## B-03 · Verde falso quando o modelo para sem agir — feito
+
+**O que mudou**
+
+- `agent-runtime.ts`, ao fim do turno do modelo:
+  - parada truncada (`max_tokens`), recusa (`refusal`) ou motivo desconhecido (`incomplete`,
+    `timeout`) reprovam o passo;
+  - um passo de cenário só é aprovado com pelo menos uma tool call bem-sucedida. Passos fora de
+    cenário (perfil avulso) seguem como antes.
+- Providers: a Anthropic mapeava qualquer `stop_reason` desconhecido para `end_turn`. Agora
+  `refusal` vira `refusal`, e `pause_turn` ou valores novos viram `incomplete`. Na OpenAI,
+  `content_filter` vira `refusal`, e `finish_reason` desconhecido vira `incomplete`.
+- O enum `stopReason` ganhou `refusal` e `incomplete`.
+
+**Teste:** `phase2/__tests__/step-completion-guard.test.ts`, com 7 casos:
+
+- passo sem tool call reprova;
+- passo cuja única tool falhou reprova;
+- `max_tokens` reprova;
+- recusa reprova;
+- passo com tool bem-sucedida completa;
+- os dois mapeamentos de provider.
+
+Antes da correção, 6 dos 7 falharam. Na mutação (regras novas desligadas), os 4 casos do agent
+runtime falham. O resto da suíte da API seguiu verde, então nenhum teste existente dependia do
+comportamento antigo.
+
+**Verificação:** `typecheck` 0; `npm test` 0 (API 402, web 120); `verify:release` 0; `test:e2e` 0. O
+e2e confirma que o caminho determinístico continua aprovando o app saudável (ele sempre chama a tool
+do passo) e reprovando o quebrado.

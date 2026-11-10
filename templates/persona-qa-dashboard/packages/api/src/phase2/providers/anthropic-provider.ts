@@ -119,7 +119,7 @@ function toAnthropicTool(tool: ToolDefinition): AnthropicTool {
   }
 }
 
-function fromAnthropicResponse(response: AnthropicResponse): ModelResponse {
+export function fromAnthropicResponse(response: AnthropicResponse): ModelResponse {
   const textParts: string[] = []
   const toolCalls: ToolCall[] = []
 
@@ -135,10 +135,14 @@ function fromAnthropicResponse(response: AnthropicResponse): ModelResponse {
     }
   }
 
-  const stopReason = response.stop_reason === 'end_turn' ? 'end_turn'
+  // Only a real end of turn maps to end_turn. A refusal or a stop reason this runtime does not know
+  // (pause_turn, new values) must not read as "the model finished" (B-03).
+  const stopReason: ModelResponse['stopReason'] =
+    response.stop_reason === 'end_turn' || response.stop_reason === 'stop_sequence' ? 'end_turn'
     : response.stop_reason === 'tool_use' ? 'tool_use'
     : response.stop_reason === 'max_tokens' ? 'max_tokens'
-    : 'end_turn' as const
+    : response.stop_reason === 'refusal' ? 'refusal'
+    : 'incomplete'
 
   return {
     text: textParts.length > 0 ? textParts.join('\n') : undefined,

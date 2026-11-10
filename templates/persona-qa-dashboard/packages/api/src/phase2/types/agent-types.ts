@@ -110,7 +110,9 @@ export type SyntheticToolResult = z.infer<typeof SyntheticToolResultSchema>
 export const ModelResponseSchema = z.object({
   text: z.string().optional(),
   toolCalls: z.array(ToolCallSchema),
-  stopReason: z.enum(['end_turn', 'tool_use', 'max_tokens', 'timeout']),
+  // 'refusal' (the model declined) and 'incomplete' (any stop the runtime does not recognize) are
+  // failures, never a normal end of turn (B-03).
+  stopReason: z.enum(['end_turn', 'tool_use', 'max_tokens', 'timeout', 'refusal', 'incomplete']),
   usage: z.object({
     inputTokens: z.number(),
     outputTokens: z.number(),

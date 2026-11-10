@@ -29,6 +29,13 @@ export interface StepContext {
 /** Runtime-only context keys: handed to tools, never listed as artifacts in the model prompt. */
 const RUNTIME_ONLY_CONTEXT_KEYS = new Set(['page', 'sessionId', 'executionTarget'])
 
+function describeIncompleteStop(stopReason: string | undefined): string | null {
+  if (stopReason === 'max_tokens') return 'Model output was truncated (max_tokens) before the step finished'
+  if (stopReason === 'refusal') return 'Model refused to perform the step'
+  if (stopReason === 'incomplete' || stopReason === 'timeout') return `Model stopped without finishing the step (${stopReason})`
+  return null
+}
+
 function asExecutionTarget(value: unknown): ExecutionTarget | undefined {
   if (!value || typeof value !== 'object') return undefined
   const record = value as Record<string, unknown>
@@ -184,6 +191,7 @@ export class AgentRuntime {
     const accumulatedOutput: Record<string, unknown> = {}
     const expectedArtifacts = this.extractExpectedArtifacts(messages)
     const stepId = this.extractScenarioStepId(messages)
+    let successfulToolCalls = 0
 
     const allTools = this.toolRegistry.listTools()
     const toolDefs: ToolDefinition[] = allTools
@@ -320,6 +328,36 @@ export class AgentRuntime {
       })
 
       if (response.toolCalls.length === 0 || response.stopReason === 'end_turn') {
+        // B-03: stopping is not proof. A truncated, refused, or unrecognized stop fails the step...
+        const incompleteStop = describeIncompleteStop(response.stopReason)
+        if (incompleteStop) {
+          return this.finishStep(sessionId, profile, {
+            status: 'failed',
+            text: response.text,
+            toolCalls: response.toolCalls,
+            findings: collectedFindings,
+            output: accumulatedOutput,
+            durationMs: Date.now() - startedAt,
+            success: false,
+            error: incompleteStop,
+          })
+        }
+
+        // ...and a scenario step needs at least one successful tool call: the contract verdict comes
+        // from what the step did, not from the model ending its turn.
+        if (stepId && successfulToolCalls === 0) {
+          return this.finishStep(sessionId, profile, {
+            status: 'failed',
+            text: response.text,
+            toolCalls: response.toolCalls,
+            findings: collectedFindings,
+            output: accumulatedOutput,
+            durationMs: Date.now() - startedAt,
+            success: false,
+            error: `Scenario step ${stepId} ended without a successful tool call`,
+          })
+        }
+
         const evidenceValidation = this.validateFindingEvidence(profile, collectedEvidence)
         if (!evidenceValidation.valid && collectedFindings.length > 0) {
           return this.finishStep(sessionId, profile, {
@@ -458,6 +496,8 @@ export class AgentRuntime {
             collectedEvidence.push(String(output.artifactId))
           }
         }
+
+        if (result.ok) successfulToolCalls += 1
 
         if (result.ok && result.output && typeof result.output === 'object' && !Array.isArray(result.output)) {
           Object.assign(accumulatedOutput, result.output as Record<string, unknown>)
