@@ -18,9 +18,7 @@ falhava antes dela e uma checagem por mutação: com a correção desfeita, o te
 
 **Para o Allan (exige decisão, conta ou acesso):**
 
-- Push e PR das três correções e do relatório; nada foi enviado.
 - Rodar o job de gitleaks do CI quando houver PR.
-- Decidir se o runtime gerado também deve ter token, além de `Host` e `Origin` (ver S-01).
 - Runtimes já instalados em outros repositórios não recebem estas correções sem reinstalar
   (`install-local`); não há mecanismo de upgrade (A-03 do relatório).
 - Rotação de chaves não é necessária por estas mudanças: nenhuma chave real foi usada ou exposta.
@@ -62,6 +60,51 @@ de WebSocket recusado e aceito; o parser de `Host`.
 `contract_violated`).
 
 **Fica para o Allan:** nada que exija conta ou credencial.
+
+## Token do runtime gerado (complemento do S-01, pedido pelo Allan) — feito
+
+**O que mudou**
+
+- `api/src/security/runtime-token.ts` (novo): token de 32 bytes aleatórios em
+  `.agentic-qa/data/runtime-api.token`. O arquivo é criado na primeira subida com `wx` e modo `0600`
+  e reaproveitado depois. `data/` está no `.gitignore` do runtime. Um token em symlink ou malformado
+  é recusado. A comparação usa `timingSafeEqual`. O token é lido só de `x-agentic-token` ou
+  `Authorization: Bearer`, nunca da query string.
+- `local-request-guard.ts`: depois de `Host` e `Origin`, exige o token em todo método, inclusive no
+  preflight e no upgrade de WebSocket (`401`). A exceção é `GET`/`HEAD /health`, sonda de vida
+  sem dados.
+- O dashboard nunca vê o token. O navegador não manda header customizado no preflight, então a web
+  passou a chamar a API pela própria origem: `lib/api-base.ts`, `API_BASE = ''`, nos 13 arquivos
+  que tinham `VITE_API_URL` próprio. O proxy do Vite (`web/src/server/runtime-api-proxy.ts`) lê o
+  token do arquivo, no servidor, a cada requisição, e o injeta em HTTP e WebSocket, substituindo
+  qualquer valor que venha do navegador.
+- Launcher: cria o token (`api/src/scripts/ensure-runtime-token.ts`) antes de subir API e web, e
+  aponta o proxy com `AGENTIC_QA_API_URL`.
+- Scripts que chamam a API direto (`storefront-runtime.mjs`, `verify-generic-frontend.mjs`) leem o
+  token do arquivo.
+- Docs: `SECURITY.md`, `README.md`, README do template, `docs/generated-files.md`, `docs/testing.md`.
+
+**Testes**
+
+- `local-request-guard.test.ts`: sem token, token errado do mesmo tamanho, malformado, na query
+  string e no preflight dão `401`; `Bearer` é aceito; `GET`/`HEAD /health` ficam abertos, mas
+  `POST /health` e `/health/../api/...` não; upgrade de WebSocket sem token dá `401` e com token
+  dá `101`.
+- `runtime-token.test.ts`: criação `0600`, reaproveitamento, recusa de arquivo malformado e de
+  symlink.
+- `web/src/server/__tests__/runtime-api-proxy.test.ts`: sobe um Vite real com o proxy na frente de
+  uma API falsa; o token chega em HTTP e no upgrade de WebSocket, e um token enviado pelo navegador
+  é trocado pelo do arquivo.
+- e2e: API direta sem token `401`; o mesmo pedido pelo proxy do dashboard `200`; o WebSocket de
+  sessão só abre pelo proxy. `verify-generic-frontend` também confere o `401` sem token.
+- **Mutação:** sem a checagem do token no guard, 11 testes da API falham; sem a injeção no proxy,
+  3 dos 4 testes do proxy falham.
+
+**Verificação:** `typecheck` 0; `npm test` 0 (API: 32 arquivos, 372 testes; web: 21 arquivos,
+120 testes); `verify:release` 0; `test:e2e` 0.
+
+**Limite:** o dev server do Vite é o portão do dashboard. Ele escuta em `127.0.0.1`, o Vite recusa
+`Host` estrangeiro, e a API recusa `Origin` estrangeiro mesmo quando a requisição vem pelo proxy.
 
 ## S-02 · Discovery escreve e apaga fora do repositório via symlink — feito
 

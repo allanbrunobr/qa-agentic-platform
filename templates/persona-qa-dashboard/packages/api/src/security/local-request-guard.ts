@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
+import { assertUsableToken, tokenFromHeaders, tokensMatch } from './runtime-token.js'
 
 /**
  * Guard for the local runtime API.
@@ -12,8 +13,10 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
  *   withholds the response headers; the handler still runs. This guard rejects the request before
  *   any handler runs, for every method, including the WebSocket upgrade.
  *
- * Requests without an Origin header (curl, scripts, server-side fetch) are allowed when the Host is
- * loopback. A process on the same machine can already read the runtime's files.
+ * - Token: every request except GET/HEAD /health must carry the local API token (header
+ *   `x-agentic-token` or `Authorization: Bearer`), compared in constant time. This also covers
+ *   clients without an Origin header (curl, scripts, other local processes that cannot read the
+ *   runtime's data/ folder).
  */
 
 const LOOPBACK_HOSTNAMES = new Set(['127.0.0.1', 'localhost', '[::1]', '::1'])
@@ -62,9 +65,17 @@ export function isAllowedHost(value: string | undefined, extraHostnames: Set<str
 export interface LocalRequestGuardOptions {
   allowedOrigins: Set<string>
   extraHostnames?: Set<string>
+  /** Local API token (see runtime-token.ts). Required on every request except GET/HEAD /health. */
+  token: string
+}
+
+function isHealthProbe(request: FastifyRequest): boolean {
+  const pathname = request.url.split('?')[0]
+  return (request.method === 'GET' || request.method === 'HEAD') && pathname === '/health'
 }
 
 export function registerLocalRequestGuard(app: FastifyInstance, options: LocalRequestGuardOptions): void {
+  assertUsableToken(options.token)
   const extraHostnames = options.extraHostnames ?? new Set<string>()
 
   app.addHook('onRequest', async (request: FastifyRequest, reply: FastifyReply) => {
@@ -75,6 +86,13 @@ export function registerLocalRequestGuard(app: FastifyInstance, options: LocalRe
     const origin = request.headers.origin
     if (typeof origin === 'string' && origin.length > 0 && !options.allowedOrigins.has(origin)) {
       return reply.code(403).send({ error: 'origin_not_allowed' })
+    }
+
+    // Every method, including the CORS preflight and the WebSocket upgrade. Browsers never send
+    // custom headers on a preflight, so the dashboard reaches the API through its same-origin Vite
+    // proxy, which adds the token server-side (packages/web/src/server/runtime-api-proxy.ts).
+    if (!isHealthProbe(request) && !tokensMatch(tokenFromHeaders(request.headers), options.token)) {
+      return reply.code(401).send({ error: 'unauthorized' })
     }
   })
 }

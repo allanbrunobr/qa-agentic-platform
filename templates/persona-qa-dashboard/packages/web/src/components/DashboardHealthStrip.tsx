@@ -1,8 +1,8 @@
+import { API_BASE } from '@/lib/api-base'
 import { useState, useEffect, useCallback } from 'react'
 import { Activity, Database, Play, AlertCircle } from 'lucide-react'
 import { formatRelativeTime } from '@/lib/utils'
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001'
 
 interface StatusData {
   api: 'up' | 'down'

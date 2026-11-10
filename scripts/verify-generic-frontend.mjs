@@ -440,7 +440,10 @@ async function verifyRuntimeRun() {
     const health = JSON.parse(healthText)
     assert(health?.status === 'ok', `dashboard health payload is invalid: ${healthText}`)
 
-    const graphResponse = await fetch(`http://127.0.0.1:${apiPort}/api/p2/code-graph`)
+    const unauthenticated = await fetch(`http://127.0.0.1:${apiPort}/api/p2/code-graph`)
+    assert(unauthenticated.status === 401, `runtime API answered ${unauthenticated.status} without the local token`)
+
+    const graphResponse = await fetch(`http://127.0.0.1:${apiPort}/api/p2/code-graph`, { headers: runtimeAuthHeaders() })
     const graphText = await graphResponse.text()
     assert(graphResponse.status === 200, `code graph endpoint failed with status ${graphResponse.status}: ${graphText}`)
     const graphBody = JSON.parse(graphText)
@@ -458,7 +461,7 @@ async function verifyRuntimeRun() {
 
     const response = await fetch(`http://127.0.0.1:${apiPort}/api/p2/runs`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...runtimeAuthHeaders() },
       body: JSON.stringify({ scenario_id: 'place_order' }),
     })
     const responseText = await response.text()
@@ -479,10 +482,16 @@ async function verifyRuntimeRun() {
   }
 }
 
+/** The launcher creates the local API token in .agentic-qa/data/; every request but /health needs it. */
+function runtimeAuthHeaders() {
+  const tokenPath = path.join(fixtureRoot, '.agentic-qa', 'data', 'runtime-api.token')
+  return { 'x-agentic-token': fs.readFileSync(tokenPath, 'utf8').trim() }
+}
+
 async function pollSession(sessionId) {
   const deadline = Date.now() + 90_000
   while (Date.now() < deadline) {
-    const response = await fetch(`http://127.0.0.1:${apiPort}/api/p2/sessions/${sessionId}`)
+    const response = await fetch(`http://127.0.0.1:${apiPort}/api/p2/sessions/${sessionId}`, { headers: runtimeAuthHeaders() })
     if (response.ok) {
       const session = await response.json()
       if (session.status === 'complete' || session.status === 'failed') return session

@@ -1,3 +1,4 @@
+import { API_BASE } from '@/lib/api-base'
 import { useState, useEffect } from 'react'
 import { Filter, Calendar } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
@@ -41,7 +42,6 @@ interface RunFiltersProps {
   onChange: (filters: RunFilterState) => void
 }
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001'
 
 interface SourcesResponse {
   sources: string[]

@@ -58,6 +58,7 @@ Written while the runtime runs. All of it is local state; none of it should be c
 | `persona-qa.db` (plus `-wal`/`-shm`) | SQLite session store: sessions, steps, events, findings, verdicts, L4/L5 records. Created in the API working directory, which is `.agentic-qa/` when you use the launcher. Override with `DATABASE_URL`. |
 | `packages/api/artifacts/screenshots/<sessionId>/` | Screenshots captured as evidence. |
 | `data/runtime-settings.json` | Provider and model selected in the dashboard settings page. |
+| `data/runtime-api.token` | Local API token, created on first start (mode `0600`). **Secret**: every API request except `GET /health` needs it, and `data/` is gitignored. Delete it to rotate; the next start creates a new one. |
 | `adapter/scenarios/scenarios.promoted.json` | Scenarios promoted by the L5 loop after governance approval. Review it like any other scenario file. |
 
 ## Customizing

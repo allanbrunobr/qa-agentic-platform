@@ -69,4 +69,4 @@ cd packages/api && npx vitest run            # API and agent runtime tests
 cd packages/web && npx vitest run            # dashboard tests
 ```
 
-To run the parts separately: `npm run dev:api` (API on port 3001 by default) and `npm run dev:web` (Vite on port 5173; set `VITE_API_URL` if the API runs elsewhere).
+To run the parts separately: `npm run dev:api` (API on port 3001 by default) and `npm run dev:web` (Vite on port 5173). The dashboard calls the API through the Vite proxy, which adds the local API token from `data/runtime-api.token`; set `AGENTIC_QA_API_URL` if the API runs elsewhere. Every API request except `GET /health` needs the header `x-agentic-token` with that file's contents.

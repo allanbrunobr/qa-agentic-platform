@@ -96,7 +96,7 @@ export function Settings() {
 
   const environment = useMemo(() => ({
     dashboardUrl: window.location.origin,
-    apiUrl: import.meta.env.VITE_API_URL || 'http://localhost:3001',
+    apiUrl: `${window.location.origin}/api (proxied by the dashboard server)`,
     mode: import.meta.env.MODE,
   }), [])
 

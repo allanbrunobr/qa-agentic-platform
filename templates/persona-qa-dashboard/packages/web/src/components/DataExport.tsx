@@ -1,8 +1,8 @@
+import { API_BASE } from '@/lib/api-base'
 import { useState } from 'react'
 import { Download, FileText } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001'
 
 type ExportFormat = 'json' | 'csv'
 

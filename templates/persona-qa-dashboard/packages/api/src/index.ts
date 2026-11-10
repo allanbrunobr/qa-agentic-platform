@@ -2,6 +2,7 @@ import { initDb, closeDb } from './db/index.js';
 import { setLastSync } from './routes/stats.js';
 import { syncDataDir } from './services/data-sync.js';
 import { buildApp } from './app.js';
+import { defaultRuntimeTokenPath, ensureRuntimeToken } from './security/runtime-token.js';
 
 const PORT = parseInt(process.env['PORT'] ?? '3001', 10);
 const HOST = process.env['HOST'] ?? '127.0.0.1';
@@ -19,7 +20,10 @@ async function start(): Promise<void> {
     console.warn(`[startup] Data sync skipped: ${message}`);
   }
 
-  const app = await buildApp();
+  // Created on first start (or by the launcher before it), reused afterwards. Never logged.
+  const tokenPath = defaultRuntimeTokenPath();
+  const token = await ensureRuntimeToken(tokenPath);
+  const app = await buildApp({ token });
 
   // Graceful shutdown handlers
   const shutdown = async (signal: string): Promise<void> => {
@@ -37,6 +41,7 @@ async function start(): Promise<void> {
     console.log(`[persona-qa/api] Server listening on http://${HOST}:${PORT}`);
     console.log(`[persona-qa/api] WebSocket endpoint: ws://${HOST}:${PORT}/ws/runs/:runId`);
     console.log(`[persona-qa/api] Health check: http://${HOST}:${PORT}/health`);
+    console.log(`[persona-qa/api] Other requests need the token in ${tokenPath} (header x-agentic-token)`);
   } catch (err) {
     app.log.error(err);
     closeDb();

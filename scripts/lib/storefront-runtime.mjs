@@ -158,13 +158,38 @@ export async function startStorefrontRuntime({ log, keepDir = false }) {
     await waitFor('dashboard web', 120_000, async () => (await fetch(`${webUrl}/`)).ok)
     log('runtime API and dashboard are up')
 
-    async function api(route, init) {
+    // The runtime API requires the local token (created by the launcher in .agentic-qa/data/).
+    const tokenPath = path.join(targetDir, '.agentic-qa', 'data', 'runtime-api.token')
+    const token = fs.readFileSync(tokenPath, 'utf8').trim()
+
+    async function api(route, init, { authenticated = true } = {}) {
       const response = await fetch(`${apiUrl}${route}`, {
         ...init,
-        headers: { 'content-type': 'application/json', ...(init?.headers ?? {}) },
+        headers: {
+          'content-type': 'application/json',
+          ...(authenticated ? { 'x-agentic-token': token } : {}),
+          ...(init?.headers ?? {}),
+        },
       })
       const body = await response.json().catch(() => null)
       return { status: response.status, body }
+    }
+
+    /** Calls the API the way the dashboard does: same origin, through the Vite proxy, no token. */
+    async function viaDashboard(route) {
+      const response = await fetch(`${webUrl}${route}`)
+      const body = await response.json().catch(() => null)
+      return { status: response.status, body }
+    }
+
+    /** Opens a WebSocket and reports whether the upgrade succeeded. */
+    function websocketOpens(url) {
+      return new Promise((resolve) => {
+        const socket = new WebSocket(url)
+        const timer = setTimeout(() => { socket.close(); resolve(false) }, 10_000)
+        socket.addEventListener('open', () => { clearTimeout(timer); socket.close(); resolve(true) })
+        socket.addEventListener('error', () => { clearTimeout(timer); resolve(false) })
+      })
     }
 
     async function startScenario(scenarioId, executionContext) {
@@ -214,7 +239,7 @@ export async function startStorefrontRuntime({ log, keepDir = false }) {
       return `http://127.0.0.1:${brokenPort}`
     }
 
-    return { appUrl, apiUrl, webUrl, targetDir, api, startScenario, waitForSession, listScenarioIds, breakApp, serveBrokenCopy, stop }
+    return { appUrl, apiUrl, webUrl, targetDir, tokenPath, api, viaDashboard, websocketOpens, startScenario, waitForSession, listScenarioIds, breakApp, serveBrokenCopy, stop }
   } catch (error) {
     await stop()
     throw error

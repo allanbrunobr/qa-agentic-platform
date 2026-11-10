@@ -36,6 +36,20 @@ try {
     throw new Error(`expected complete/contract_compliant on the healthy app, got ${describeSession(healthy)}`)
   }
 
+  // Local API token: the API refuses requests without it, and the dashboard reaches the API through
+  // its Vite proxy, which adds the token server-side (HTTP and WebSocket).
+  const direct = await runtime.api('/api/p2/scenarios', undefined, { authenticated: false })
+  if (direct.status !== 401) throw new Error(`expected 401 from the API without the token, got ${direct.status}`)
+  const proxied = await runtime.viaDashboard('/api/p2/scenarios')
+  if (proxied.status !== 200) throw new Error(`expected 200 through the dashboard proxy, got ${proxied.status}`)
+  const sessionWsPath = `/ws/p2/sessions/${healthy.id ?? healthy.sessionId}`
+  const wsDirect = await runtime.websocketOpens(`${runtime.apiUrl.replace(/^http/, 'ws')}${sessionWsPath}`)
+  const wsProxied = await runtime.websocketOpens(`${runtime.webUrl.replace(/^http/, 'ws')}${sessionWsPath}`)
+  if (wsDirect || !wsProxied) {
+    throw new Error(`expected the WebSocket to open only through the dashboard proxy (direct=${wsDirect}, proxied=${wsProxied})`)
+  }
+  log('API token: direct request 401, dashboard proxy 200, WebSocket opens only through the proxy')
+
   // B-02: the launcher's PLAYWRIGHT_BASE_URL still points at the healthy app. A run aimed at a broken
   // copy through execution_context.targetBaseUrl (the dashboard's "target base URL") must test that
   // copy and fail. If the tools fell back to the environment, this would come back compliant.

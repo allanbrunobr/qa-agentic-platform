@@ -54,7 +54,7 @@ It prints `[verify-release] PASS release verification` on success. Ports for the
 1. Copies `examples/storefront` to a temp dir. The copy in the repository is never touched.
 2. Runs `install-local` and `discover-local` on the copy.
 3. Serves the copy over HTTP and starts the generated launcher with the deterministic runtime and real Chromium. API keys are cleared, so no provider is called.
-4. Runs `place_order` and expects status `complete` and verdict `contract_compliant`.
+4. Runs `place_order` and expects status `complete` and verdict `contract_compliant`. Then checks the local API token: a request straight to the API without the token gets `401`, the same request through the dashboard's proxy gets `200`, and a session WebSocket opens only through the proxy.
 5. Serves a broken copy of the app on another port and runs `place_order` with `execution_context.targetBaseUrl` pointing at it, while the launcher's `PLAYWRIGHT_BASE_URL` still points at the healthy app. Expects `contract_violated`: a run must test the target it was started for, not the environment default.
 6. Breaks the app (removes its success feedback) and expects the same scenario to fail with `contract_violated`.
 

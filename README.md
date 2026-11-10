@@ -163,6 +163,8 @@ Runtime variables, read by the generated runtime:
 | `AGENTIC_QA_FORCE_DETERMINISTIC_RUNTIME` | Set `1` to run with deterministic tools and no model calls. |
 | `AGENTIC_QA_WEB_ORIGIN` | Comma-separated dashboard origins the API accepts. The launcher sets it. Any other `Origin` gets `403`. |
 | `AGENTIC_QA_ALLOWED_HOSTS` | Comma-separated extra host names the API accepts in the `Host` header. Loopback names are always accepted; anything else gets `403`. |
+| `AGENTIC_QA_API_TOKEN_PATH` | Location of the local API token. Default `.agentic-qa/data/runtime-api.token`, created on first start. Every API request except `GET /health` needs the header `x-agentic-token` with its contents; the dashboard adds it through its proxy. |
+| `AGENTIC_QA_API_URL` | Where the dashboard's dev-server proxy forwards `/api` and `/ws`. The launcher sets it. |
 | `GENERIC_API_BASE_URL` / `TARGET_API_BASE_URL` / `API_BASE_URL` | Real HTTP probes for backend API repositories. |
 | `GENERIC_CLI_COMMAND` / `TARGET_CLI_COMMAND` | CLI to probe when the `bin` entry in `package.json` is not sufficient. |
 | `AGENTIC_QA_TEMPLATE_ROOT` | Installer only. Absolute path to an alternative runtime template. |

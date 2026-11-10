@@ -21,6 +21,8 @@ import {
 } from './security/local-request-guard.js';
 
 export interface BuildAppOptions {
+  /** Local API token, required on every request except GET/HEAD /health (see security/runtime-token.ts). */
+  token: string;
   logger?: FastifyServerOptions['logger'];
   env?: NodeJS.ProcessEnv;
 }
@@ -35,7 +37,7 @@ function defaultLogger(env: NodeJS.ProcessEnv): FastifyServerOptions['logger'] {
   };
 }
 
-export async function buildApp(options: BuildAppOptions = {}) {
+export async function buildApp(options: BuildAppOptions) {
   const env = options.env ?? process.env;
   const app = Fastify({ logger: options.logger ?? defaultLogger(env) });
 
@@ -51,6 +53,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   registerLocalRequestGuard(app, {
     allowedOrigins,
     extraHostnames: extraAllowedHostnames(env),
+    token: options.token,
   });
 
   await app.register(cors, {
@@ -62,7 +65,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
       callback(null, false)
     },
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Agentic-Token'],
     credentials: true,
   });
 

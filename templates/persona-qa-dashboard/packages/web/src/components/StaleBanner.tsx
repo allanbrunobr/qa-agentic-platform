@@ -1,8 +1,8 @@
+import { API_BASE } from '@/lib/api-base'
 import { useState, useEffect, useCallback } from 'react'
 import { AlertTriangle, RefreshCw, X } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001'
 
 interface StalenessResponse {
   has_data: boolean

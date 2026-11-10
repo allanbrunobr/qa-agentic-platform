@@ -1,9 +1,9 @@
+import { API_BASE } from '@/lib/api-base'
 import { useState, useEffect, useCallback } from 'react'
 import { X, RefreshCw, CheckCircle, AlertCircle, FileText, Database, Clock, Zap } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { formatRelativeTime } from '@/lib/utils'
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001'
 
 interface SyncSummary {
   success: boolean

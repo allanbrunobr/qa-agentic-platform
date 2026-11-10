@@ -1,3 +1,4 @@
+import { API_BASE } from '@/lib/api-base'
 import { useState, useEffect, useCallback } from 'react'
 import { motion } from 'framer-motion'
 import { ChevronUp, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react'
@@ -8,7 +9,6 @@ import { formatDuration, formatRelativeTime } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import type { ApiRun } from '@/lib/mock-data'
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001'
 
 interface PaginationInfo {
   page: number

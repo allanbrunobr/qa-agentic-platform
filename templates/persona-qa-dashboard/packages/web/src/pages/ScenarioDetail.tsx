@@ -1,3 +1,4 @@
+import { API_BASE } from '@/lib/api-base'
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { ArrowLeft, Users, Layers } from 'lucide-react'
@@ -13,7 +14,6 @@ import { RecentFindings } from '@/components/RecentFindings'
 import { ScenarioHistoryTable } from '@/components/ScenarioHistoryTable'
 import { RunTimeline } from '@/components/RunTimeline'
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001'
 
 interface ScenarioDetailProps {
   scenarioId: string

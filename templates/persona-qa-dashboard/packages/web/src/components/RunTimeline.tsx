@@ -1,3 +1,4 @@
+import { API_BASE } from '@/lib/api-base'
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import {
@@ -10,7 +11,6 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001'
 
 interface TimelineEvent {
   id: string

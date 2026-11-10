@@ -1,10 +1,10 @@
+import { API_BASE } from '@/lib/api-base'
 import { useState, useEffect } from 'react'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { StepHistoryPanel } from '@/components/StepHistoryPanel'
 import { cn } from '@/lib/utils'
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001'
 
 interface SessionDetail {
   id: string
