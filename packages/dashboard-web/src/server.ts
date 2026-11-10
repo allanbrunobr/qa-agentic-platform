@@ -1675,11 +1675,18 @@ export async function createPlatformWebServer(options: {
   return { server, html, token, apiPort, webPort }
 }
 
-async function startPlatformWeb() {
-  const { server, webPort } = await createPlatformWebServer()
-  server.listen(webPort, CONTROL_PLANE_HOST, () => {
-    console.log(`agentic-platform dashboard-web listening on http://${CONTROL_PLANE_HOST}:${webPort}`)
+/** Creates the dashboard and binds it the way production does. Exported so the bind can be tested (T-02). */
+export async function startPlatformWeb(options: Parameters<typeof createPlatformWebServer>[0] = {}) {
+  const created = await createPlatformWebServer(options)
+  await new Promise<void>((resolve, reject) => {
+    created.server.once('error', reject)
+    created.server.listen(created.webPort, CONTROL_PLANE_HOST, () => {
+      created.server.off('error', reject)
+      resolve()
+    })
   })
+  console.log(`agentic-platform dashboard-web listening on http://${CONTROL_PLANE_HOST}:${created.webPort}`)
+  return created
 }
 
 if (path.basename(process.argv[1] ?? '') === 'server.ts') {

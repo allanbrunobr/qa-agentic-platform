@@ -263,11 +263,18 @@ export async function createPlatformApiServer(options: PlatformServerOptions = {
   return { server, token, apiPort, webPort }
 }
 
-async function startPlatformApi() {
-  const { server, apiPort } = await createPlatformApiServer()
-  server.listen(apiPort, CONTROL_PLANE_HOST, () => {
-    console.log(`agentic-platform dashboard-api listening on http://${CONTROL_PLANE_HOST}:${apiPort}`)
+/** Creates the API and binds it the way production does. Exported so the bind can be tested (T-02). */
+export async function startPlatformApi(options: PlatformServerOptions = {}) {
+  const created = await createPlatformApiServer(options)
+  await new Promise<void>((resolve, reject) => {
+    created.server.once('error', reject)
+    created.server.listen(created.apiPort, CONTROL_PLANE_HOST, () => {
+      created.server.off('error', reject)
+      resolve()
+    })
   })
+  console.log(`agentic-platform dashboard-api listening on http://${CONTROL_PLANE_HOST}:${created.apiPort}`)
+  return created
 }
 
 if (path.basename(process.argv[1] ?? '') === 'server.ts') {

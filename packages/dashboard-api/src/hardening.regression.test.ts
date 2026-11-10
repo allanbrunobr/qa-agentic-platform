@@ -9,6 +9,7 @@ import { createServer as createNetServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import vm from 'node:vm'
 import { FileSessionStore } from '../../core/src/runtime/file-session-store.ts'
 import { ensureControlPlaneToken } from './control-plane-guard.ts'
 import { DiscoveryValidationError, inferDomainDiscoveryBundle } from './services/domain-specialist-service.ts'
@@ -36,6 +37,140 @@ async function listen(server: { listen: Function; address: Function; close: Func
   return address
 }
 
+async function freePort(): Promise<number> {
+  const probe = createNetServer()
+  await new Promise<void>((resolve) => probe.listen(0, '127.0.0.1', () => resolve()))
+  const address = probe.address()
+  await new Promise((resolve) => probe.close(resolve))
+  if (!address || typeof address === 'string') throw new Error('no free port')
+  return address.port
+}
+
+function boundAddress(server: { address: Function }) {
+  const address = server.address()
+  if (!address || typeof address === 'string') throw new Error('server is not listening')
+  return address as { address: string; port: number }
+}
+
+/**
+ * T-02 (b): runs the dashboard's own page script against a fake DOM that records every HTML string
+ * written into the page, renders executions whose fields are HTML payloads, and checks that no payload
+ * reaches the page as markup. A new interpolation without escapeHtml fails here; a grep for the string
+ * "escapeHtml(...)" would not notice it.
+ */
+function testExecutionRenderingEscapes(html: string) {
+  const script = html.slice(html.indexOf('<script>') + '<script>'.length, html.lastIndexOf('</script>'))
+  const written: string[] = []
+
+  const makeElement = (): any => {
+    const state: Record<string | symbol, unknown> = {
+      classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
+      style: {},
+      dataset: {},
+      value: '',
+      textContent: '',
+      children: [],
+    }
+    const element: any = new Proxy(state, {
+      get(target, property) {
+        if (property in target) return target[property]
+        if (property === 'innerHTML' || property === 'outerHTML') return ''
+        if (property === 'querySelectorAll' || property === 'getElementsByClassName') return () => []
+        if (property === 'querySelector' || property === 'closest') return () => null
+        if (property === 'then') return undefined
+        return (..._args: unknown[]) => makeElement()
+      },
+      set(target, property, value) {
+        if (property === 'innerHTML' || property === 'outerHTML') written.push(String(value))
+        target[property] = value
+        return true
+      },
+    })
+    return element
+  }
+
+  const elements = new Map<string, unknown>()
+  const document = {
+    getElementById: (id: string) => {
+      if (!elements.has(id)) elements.set(id, makeElement())
+      return elements.get(id)
+    },
+    createElement: () => makeElement(),
+    querySelector: () => makeElement(),
+    querySelectorAll: () => [],
+    addEventListener() {},
+    body: makeElement(),
+    documentElement: makeElement(),
+  }
+  const never = () => new Promise(() => {})
+  const sandbox: Record<string, unknown> = {
+    document,
+    console: { log() {}, warn() {}, error() {}, info() {} },
+    fetch: never,
+    setTimeout: () => 0,
+    clearTimeout() {},
+    setInterval: () => 0,
+    clearInterval() {},
+    requestAnimationFrame: () => 0,
+    localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
+    sessionStorage: { getItem: () => null, setItem() {}, removeItem() {} },
+    location: { href: 'http://127.0.0.1/', hash: '', search: '', pathname: '/' },
+    history: { replaceState() {}, pushState() {} },
+    navigator: { clipboard: { writeText: never } },
+    addEventListener() {},
+    URL,
+    URLSearchParams,
+    Intl,
+    Date,
+    JSON,
+    Math,
+    encodeURIComponent,
+  }
+  sandbox.window = sandbox
+  const context = vm.createContext(sandbox)
+  try {
+    vm.runInContext(script, context, { filename: 'dashboard-page.js', timeout: 2_000 })
+  } catch (error) {
+    assert(false, `dashboard page script runs against the fake DOM (${error instanceof Error ? error.message : String(error)})`)
+    return
+  }
+
+  const execution = {
+    executionId: 'exec-<img src=x onerror=alert(11)>',
+    scenarioId: '<img src=x onerror=alert(12)>',
+    adapterId: '<img src=x onerror=alert(13)>',
+    status: '<img src=x onerror=alert(14)>',
+    hostProjectPath: '/tmp/<img src=x onerror=alert(15)>',
+    createdAt: new Date(0).toISOString(),
+    steps: ['<img src=x onerror=alert(16)>'],
+    events: [],
+    personas: [],
+    findings: [],
+  }
+  const render = (name: string, argument: unknown) => {
+    const fn = (context as Record<string, unknown>)[name]
+    if (typeof fn !== 'function') {
+      assert(false, `dashboard page defines ${name}`)
+      return
+    }
+    try {
+      ;(fn as (value: unknown) => unknown)(argument)
+    } catch (error) {
+      assert(false, `${name} renders a hostile execution (${error instanceof Error ? error.message : String(error)})`)
+    }
+  }
+
+  const before = written.length
+  render('renderExecutionList', { executions: [execution] })
+  render('renderExecutionDetail', { execution })
+  const rendered = written.slice(before).join('\n')
+  // The instrument check: the payloads must have been rendered at all, escaped.
+  for (const id of [12, 13, 15, 16]) {
+    assert(rendered.includes(`&lt;img src=x onerror=alert(${id})&gt;`), `execution field payload ${id} is rendered, escaped`)
+  }
+  assert(!/<img\b/i.test(rendered), 'no execution field reaches the page as an <img> element')
+}
+
 async function request(port: number, options: { method?: string; path: string; headers?: Record<string, string>; body?: string }) {
   const response = await fetch(`http://127.0.0.1:${port}${options.path}`, {
     method: options.method ?? 'GET',
@@ -52,28 +187,32 @@ async function testControlPlane() {
   process.env.AGENTIC_CONTROL_PLANE_TOKEN_PATH = path.join(temp, 'data', 'control-plane.token')
   process.env.AGENTIC_PLATFORM_ROOT = temp
   const token = 'a'.repeat(64)
-  const { createPlatformApiServer } = await import('./server.ts')
-  const { createPlatformWebServer } = await import('../../dashboard-web/src/server.ts')
-  const api = await createPlatformApiServer({ token, webPort: 4177 })
-  const web = await createPlatformWebServer({
+  const { startPlatformApi } = await import('./server.ts')
+  const { startPlatformWeb } = await import('../../dashboard-web/src/server.ts')
+  const apiPort = await freePort()
+  const webPort = await freePort()
+  // T-02: the production start functions do the bind; the test only reads where they bound.
+  const api = await startPlatformApi({ token, apiPort, webPort })
+  const web = await startPlatformWeb({
     token,
-    apiPort: 3101,
-    webPort: 4177,
+    apiPort,
+    webPort,
     defaultRepo: '"><img src=x onerror=alert(1)>',
   })
-  const apiAddress = await listen(api.server)
-  const webAddress = await listen(web.server)
+  const apiAddress = boundAddress(api.server)
+  const webAddress = boundAddress(web.server)
   try {
-    assert(apiAddress.address === '127.0.0.1', 'api binds to 127.0.0.1')
-    assert(webAddress.address === '127.0.0.1', 'web binds to 127.0.0.1')
+    assert(apiAddress.address === '127.0.0.1' && apiAddress.port === apiPort, `api binds to 127.0.0.1:${apiPort} (got ${apiAddress.address}:${apiAddress.port})`)
+    assert(webAddress.address === '127.0.0.1' && webAddress.port === webPort, `web binds to 127.0.0.1:${webPort} (got ${webAddress.address}:${webAddress.port})`)
     const health = await request(apiAddress.port, { path: '/health' })
     assert(health.status === 200, 'health does not require a token')
     const missing = await request(apiAddress.port, { method: 'POST', path: '/api/install-local', headers: { 'content-type': 'application/json' }, body: '{}' })
     assert(missing.status === 401, 'post without token is unauthorized')
     const evil = await request(apiAddress.port, { method: 'OPTIONS', path: '/api/install-local', headers: { origin: 'https://evil.example', 'access-control-request-method': 'POST' } })
     assert(evil.status === 403 && !evil.headers.has('access-control-allow-origin'), 'foreign origin is not reflected')
-    const localOrigin = await request(apiAddress.port, { method: 'OPTIONS', path: '/api/install-local', headers: { origin: 'http://127.0.0.1:4177', 'access-control-request-method': 'POST' } })
-    assert(localOrigin.status === 204 && localOrigin.headers.get('access-control-allow-origin') === 'http://127.0.0.1:4177', 'local web origin is allowed')
+    const webOrigin = `http://127.0.0.1:${webPort}`
+    const localOrigin = await request(apiAddress.port, { method: 'OPTIONS', path: '/api/install-local', headers: { origin: webOrigin, 'access-control-request-method': 'POST' } })
+    assert(localOrigin.status === 204 && localOrigin.headers.get('access-control-allow-origin') === webOrigin, 'local web origin is allowed')
     const invalid = await request(apiAddress.port, {
       method: 'POST',
       path: '/api/install-local',
@@ -89,24 +228,9 @@ async function testControlPlane() {
     })
     assert(huge.status === 413 && huge.text.includes('payload_too_large'), 'oversized body is 413')
     assert(!web.html.includes('<img src=x'), 'default repo is escaped in the dashboard HTML')
-    assert(web.html.includes('escapeHtml(execution.scenarioId)'), 'execution scenario id is escaped')
-    assert(web.html.includes('escapeHtml(execution.hostProjectPath'), 'execution path is escaped')
-    assert(!web.html.includes('+ execution.scenarioId +'), 'execution scenario id is not concatenated raw')
     assert(web.html.includes(`"authorization": "Bearer ${token}"`) === false, 'token is not logged as an object dump')
     assert(web.html.includes(token), 'dashboard page receives the local token')
-    const outside = createNetServer()
-    let publicBindFailed = false
-    try {
-      await new Promise<void>((resolve, reject) => {
-        api.server.once('error', reject)
-        // The server is already listening; this only documents the expected host.
-        resolve()
-      })
-    } catch {
-      publicBindFailed = true
-    }
-    outside.close()
-    assert(publicBindFailed === false && apiAddress.address === '127.0.0.1', 'api address family stays loopback')
+    testExecutionRenderingEscapes(web.html)
   } finally {
     await new Promise((resolve) => api.server.close(resolve))
     await new Promise((resolve) => web.server.close(resolve))

@@ -432,3 +432,32 @@ espera, por exemplo) não é interrompida no meio; o que o passo impede é a pr�
 | Sem a regra `denyRiskLevels` | falha ("deny takes precedence") | falha |
 
 **Verificação:** `typecheck` 0; `npm test` 0 (API 458, web 120); `verify:release` 0; `test:e2e` 0.
+
+## T-02 · Testes de hardening que confirmavam a própria hipótese — feito
+
+**O que mudou**
+
+- **(a) Bind.** `startPlatformApi` e `startPlatformWeb` passam a ser exportadas e esperam o `listen`
+  terminar (rejeitam se o bind falhar). O ponto de entrada de produção continua chamando as mesmas
+  funções. O teste sobe os dois servidores por elas, em portas livres, e lê `server.address()`.
+  O helper `listen` do próprio teste e a checagem "api address family stays loopback" (promise que
+  resolvia na hora) saíram de `testControlPlane`.
+- **(b) Escape.** As três checagens que procuravam a string `escapeHtml(...)` no HTML foram
+  trocadas por `testExecutionRenderingEscapes`. Ela executa o script real da página num `vm` com um
+  DOM falso que registra todo HTML escrito na página. Depois chama `renderExecutionList` e
+  `renderExecutionDetail` com uma execução cujos campos são `<img src=x onerror=…>`. Exige que os
+  payloads apareçam escapados (prova de que a renderização aconteceu) e que nenhum `<img` chegue
+  como marcação. Não entrou dependência nova (jsdom); o `fetch` falso nunca resolve, então o
+  carregamento inicial da página não roda.
+
+**Medição do instrumento**
+
+| Mutação | Teste antigo | Teste novo |
+|---|---|---|
+| API faz bind em `0.0.0.0` | passa | falha |
+| Dashboard faz bind em `0.0.0.0` | passa | falha |
+| `scenarioId` sem escape na lista | falha (grep) | falha |
+| `adapterId` sem escape no detalhe | passa | falha |
+| `escapeHtml` do cliente sem trocar `<` | passa | falha (5 checagens) |
+
+**Verificação:** `typecheck` 0; `npm test` 0 (API 458, web 120); `verify:release` 0; `test:e2e` 0.
