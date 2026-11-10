@@ -331,11 +331,6 @@ async function patchInstalledRuntime(installedPath: string, repoPath: string) {
   const envExamplePath = path.join(installedPath, '.env.example')
   const apiPackageJsonPath = path.join(installedPath, 'packages', 'api', 'package.json')
   const npmrcPath = path.join(installedPath, '.npmrc')
-  const dbIndexPath = path.join(installedPath, 'packages', 'api', 'src', 'db', 'index.ts')
-  const sessionServicePath = path.join(installedPath, 'packages', 'api', 'src', 'phase2', 'services', 'session-service.ts')
-  const overviewPath = path.join(installedPath, 'packages', 'web', 'src', 'pages', 'Overview.tsx')
-  const workflowToolsPath = path.join(installedPath, 'packages', 'api', 'src', 'phase2', 'tools', 'workflow-tools.ts')
-  const runtimeBootstrapPath = path.join(installedPath, 'packages', 'api', 'src', 'phase2', 'services', 'runtime-bootstrap.ts')
   const shimDir = path.join(installedPath, 'vendor', 'better-sqlite3-shim')
 
   const resolvedAnthropic = await resolveAnthropicKey(repoPath)
@@ -551,47 +546,8 @@ async function patchInstalledRuntime(installedPath: string, repoPath: string) {
     'utf8',
   )
 
-  const dbIndexSource = await fs.readFile(dbIndexPath, 'utf8')
-  const dbIndexPatched = dbIndexSource
-    .replace("import { DatabaseSync as Database } from 'node:sqlite';", "import Database from 'better-sqlite3';")
-    .replace("let _sqlite: Database | null = null;", "let _sqlite: Database.Database | null = null;")
-    .replace("_sqlite.exec('PRAGMA journal_mode = WAL');", "_sqlite.pragma('journal_mode = WAL');")
-    .replace("_sqlite.exec('PRAGMA foreign_keys = ON');", "_sqlite.pragma('foreign_keys = ON');")
-    .replace("_db = drizzle(_sqlite as any, { schema });", "_db = drizzle(_sqlite, { schema });")
-  await fs.writeFile(dbIndexPath, dbIndexPatched, 'utf8')
-
-  const sessionServiceSource = await fs.readFile(sessionServicePath, 'utf8')
-  const sessionServicePatched = sessionServiceSource
-    .replace("import { DatabaseSync as Database } from 'node:sqlite'", "import Database from 'better-sqlite3'")
-    .replace("private readonly sqlite: Database", "private readonly sqlite: Database.Database")
-    .replace("this.sqlite.exec('PRAGMA journal_mode = WAL')", "this.sqlite.pragma('journal_mode = WAL')")
-    .replace("this.sqlite.exec('PRAGMA foreign_keys = ON')", "this.sqlite.pragma('foreign_keys = ON')")
-  await fs.writeFile(sessionServicePath, sessionServicePatched, 'utf8')
-
-  const overviewSource = await fs.readFile(overviewPath, 'utf8')
-  const overviewPatched = overviewSource.replace(
-    "              Last activity {formatRelativeTime(orderedSessions[0]!.startedAt)}",
-    "              Last activity {orderedSessions[0] ? formatRelativeTime(orderedSessions[0].startedAt) : 'no activity yet'}",
-  )
-  await fs.writeFile(overviewPath, overviewPatched, 'utf8')
-
-  const workflowToolsSource = await fs.readFile(workflowToolsPath, 'utf8')
-  const workflowToolsPatched = workflowToolsSource
-    .replace("const REPO_ROOT = path.resolve(__dirname, '../../../../../..')", "const AGENTIC_QA_ROOT = path.resolve(__dirname, '../../../../../')")
-    .replaceAll("path.resolve(REPO_ROOT, 'integration-test/persona-tests/support/capabilities/", "path.resolve(AGENTIC_QA_ROOT, 'adapter/runtime/host-source-snapshot/integration-test/persona-tests/support/capabilities/")
-  await fs.writeFile(workflowToolsPath, workflowToolsPatched, 'utf8')
-
-  const runtimeBootstrapSource = await fs.readFile(runtimeBootstrapPath, 'utf8')
-  const runtimeBootstrapPatched = runtimeBootstrapSource
-    .replace(
-      "import { SessionService } from './session-service.js'\n",
-      "import { SessionService } from './session-service.js'\nimport { getSessionService, setSessionService } from '../routes/sessions.js'\n",
-    )
-    .replace(
-      "  const dbPath = options.dbPath ?? path.join(API_PACKAGE_ROOT, 'persona-qa.db')\n  const sessionService = new SessionService(dbPath)\n",
-      "  const dbPath = options.dbPath ?? path.join(API_PACKAGE_ROOT, 'persona-qa.db')\n  const sessionService = options.dbPath\n    ? new SessionService(dbPath)\n    : getSessionService()\n\n  if (options.dbPath) {\n    setSessionService(sessionService)\n  }\n",
-    )
-  await fs.writeFile(runtimeBootstrapPath, runtimeBootstrapPatched, 'utf8')
+  // A-02: the runtime source is installed exactly as the template has it. Fixes belong in the
+  // template, where CI tests them; the installer used to patch the copy with string.replace.
 
   return {
     anthropicEnvWritten: Boolean(resolvedAnthropicKey || resolvedOpenAIKey),

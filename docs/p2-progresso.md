@@ -530,3 +530,32 @@ espera, por exemplo) não é interrompida no meio; o que o passo impede é a pr�
 **Fora deste item:** a fixture continua ficando em `/tmp` depois da execução (T-07, P3).
 
 **Verificação:** `typecheck` 0; `npm test` 0 (API 458, web 120); `verify:release` 0, sem nenhuma linha de validação com falha nem menção a `api.anthropic` no log; `test:e2e` 0.
+
+## A-02 · O instalador remendava o template com `string.replace` — feito
+
+**O que mudou**
+
+- Simulação das 14 substituições contra o template atual: 11 não casavam (o template já tinha o
+  texto de destino) e 3 casavam, todas com efeito errado ou fora do lugar:
+  - `session-service.ts`: `private readonly sqlite: Database` casava como prefixo e virava
+    `Database.Database.Database`, como diz o relatório.
+  - `runtime-bootstrap.ts`: o template já tinha o import de `getSessionService`/`setSessionService`;
+    o `replace` o inseria de novo. Visto na fixture instalada: linhas 16 e 17 iguais. O esbuild
+    (`tsx`) funde os dois imports e o runtime sobe; um `tsc` na cópia instalada rejeitaria esse
+    import e o tipo acima. Isso é inferência, não rodei. Este defeito não estava no relatório.
+  - `Overview.tsx:963`: o template quebrava sem sessões (`orderedSessions[0]!.startedAt`) e só a
+    cópia instalada era consertada.
+- O bloco inteiro de `replace` saiu do instalador. A correção do `Overview` foi para a fonte. Não
+  sobrou nada a trocar na instalação, então "falhar quando não casar" não se aplica.
+
+**Testes**
+
+- `testInstalledSourceMatchesTemplate` (`hardening.regression.test.ts`) instala num repositório
+  temporário e compara byte a byte os 213 arquivos de `packages/{api,web}/src` com o template.
+  Antes da correção, falhou apontando exatamente `runtime-bootstrap.ts`, `session-service.ts` e
+  `Overview.tsx`. Daqui em diante, qualquer remendo novo na instalação também quebra esse teste.
+- `packages/web/src/__tests__/OverviewEmpty.test.tsx` renderiza o `Overview` com a API vazia. Com
+  a linha antiga, falha com `TypeError: Cannot read properties of undefined (reading 'startedAt')`;
+  com a corrigida, mostra "no activity yet".
+
+**Verificação:** `typecheck` 0; `npm test` 0 (API 458, web 121); `verify:release` 0; `test:e2e` 0.

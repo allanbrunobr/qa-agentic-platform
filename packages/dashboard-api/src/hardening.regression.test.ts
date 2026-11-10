@@ -654,6 +654,49 @@ async function testProviderKeyIsolation() {
   }
 }
 
+/**
+ * A-02: the installer used to patch the copied runtime with string.replace. Most patterns no longer
+ * matched, one corrupted a type and one duplicated an import, so the code running in the user's repo
+ * differed from the code tested in CI. The installed source must be the template source, byte for byte.
+ */
+async function testInstalledSourceMatchesTemplate() {
+  const keys = ['ANTHROPIC_API_KEY_OVERRIDE', 'OPENAI_API_KEY_OVERRIDE', 'AGENTIC_QA_SKIP_KEY_VALIDATION']
+  const savedEnv = Object.fromEntries(keys.map((key) => [key, process.env[key]]))
+  process.env.ANTHROPIC_API_KEY_OVERRIDE = ''
+  process.env.OPENAI_API_KEY_OVERRIDE = ''
+  process.env.AGENTIC_QA_SKIP_KEY_VALIDATION = '1'
+  const repo = await mkdtemp(path.join(tmpdir(), 'agentic-pristine-'))
+  try {
+    await installLocalPackage({ repoPath: repo })
+    const templateRoot = path.join(platformRoot, 'templates', 'persona-qa-dashboard')
+    const installedRoot = path.join(repo, '.agentic-qa')
+    const differing: string[] = []
+    let compared = 0
+    const walk = async (relative: string): Promise<void> => {
+      for (const entry of await readdir(path.join(templateRoot, relative), { withFileTypes: true })) {
+        const child = path.join(relative, entry.name)
+        if (entry.isDirectory()) {
+          await walk(child)
+          continue
+        }
+        const installed = await readFile(path.join(installedRoot, child)).catch(() => null)
+        if (!installed) continue
+        compared += 1
+        if (!installed.equals(await readFile(path.join(templateRoot, child)))) differing.push(child)
+      }
+    }
+    for (const pkg of ['api', 'web']) await walk(path.join('packages', pkg, 'src'))
+    assert(compared > 100, `installed runtime source was compared (${compared} files)`)
+    assert(differing.length === 0, `installed runtime source is the template source (differs: ${differing.join(', ') || 'none'})`)
+  } finally {
+    for (const key of keys) {
+      if (savedEnv[key] === undefined) delete process.env[key]
+      else process.env[key] = savedEnv[key]
+    }
+    await rm(repo, { recursive: true, force: true })
+  }
+}
+
 console.log('Running hardening regression tests...\n')
 await testControlPlane()
 await testControlPlaneRebinding()
@@ -663,6 +706,7 @@ await testRedactionAndDiscovery()
 await testInstaller()
 await testDiscoveryConfinement()
 await testProviderKeyIsolation()
+await testInstalledSourceMatchesTemplate()
 if (failed > 0) {
   console.error(`\n${failed} hardening check(s) failed`)
   process.exit(1)
