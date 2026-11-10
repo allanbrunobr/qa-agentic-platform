@@ -706,6 +706,50 @@ async function testInstalledSourceMatchesTemplate() {
   }
 }
 
+/**
+ * Reinstall keeps the user's .env.local: every variable already there stays as it is, new provider
+ * keys are added only when absent, and lines that are not assignments are dropped.
+ */
+async function testReinstallMergesEnvLocal() {
+  const keys = ['ANTHROPIC_API_KEY_OVERRIDE', 'OPENAI_API_KEY_OVERRIDE', 'AGENTIC_QA_SKIP_KEY_VALIDATION']
+  const savedEnv = Object.fromEntries(keys.map((key) => [key, process.env[key]]))
+  process.env.AGENTIC_QA_SKIP_KEY_VALIDATION = '1'
+  process.env.ANTHROPIC_API_KEY_OVERRIDE = ''
+  process.env.OPENAI_API_KEY_OVERRIDE = ''
+  const repo = await mkdtemp(path.join(tmpdir(), 'agentic-env-merge-'))
+  try {
+    await installLocalPackage({ repoPath: repo })
+    const envPath = path.join(repo, '.agentic-qa', '.env.local')
+    await writeFile(envPath, [
+      '# my notes',
+      'PLAYWRIGHT_BASE_URL=http://127.0.0.1:4100',
+      'ANTHROPIC_API_KEY="sk-ant-user-chosen"',
+      'echo PLANTED',
+      '',
+    ].join('\n'))
+
+    process.env.ANTHROPIC_API_KEY_OVERRIDE = 'sk-ant-new-from-install'
+    process.env.OPENAI_API_KEY_OVERRIDE = 'sk-openai-new-from-install'
+    const result = await installLocalPackage({ repoPath: repo })
+    const merged = await readFile(envPath, 'utf8')
+
+    assert(merged.includes('PLAYWRIGHT_BASE_URL=http://127.0.0.1:4100'), 'reinstall keeps a user variable in .env.local')
+    assert(merged.includes('# my notes'), 'reinstall keeps the user comments')
+    assert(merged.includes('ANTHROPIC_API_KEY="sk-ant-user-chosen"') && !merged.includes('sk-ant-new-from-install'), 'reinstall does not overwrite a key already in .env.local')
+    assert(merged.includes('OPENAI_API_KEY="sk-openai-new-from-install"'), 'reinstall adds a provider key that was missing')
+    assert(!merged.includes('PLANTED'), 'a line that is not an assignment is dropped')
+    assert((merged.match(/^ANTHROPIC_API_KEY=/gm) ?? []).length === 1, 'each key appears once')
+    assert(result.anthropicEnvSource === 'target/.agentic-qa/.env.local', `metadata reports the key that is in effect (got ${result.anthropicEnvSource})`)
+    assert(((await stat(envPath)).mode & 0o777) === 0o600, 'merged .env.local stays mode 0600')
+  } finally {
+    for (const key of keys) {
+      if (savedEnv[key] === undefined) delete process.env[key]
+      else process.env[key] = savedEnv[key]
+    }
+    await rm(repo, { recursive: true, force: true })
+  }
+}
+
 /** B-10: discover-local cleared every *.generated.* file in adapter/config, the install metadata too. */
 async function testDiscoveryKeepsInstallMetadata() {
   const keys = ['ANTHROPIC_API_KEY_OVERRIDE', 'OPENAI_API_KEY_OVERRIDE', 'AGENTIC_QA_SKIP_KEY_VALIDATION']
@@ -742,6 +786,7 @@ await testDiscoveryConfinement()
 await testProviderKeyIsolation()
 await testInstalledSourceMatchesTemplate()
 await testDiscoveryKeepsInstallMetadata()
+await testReinstallMergesEnvLocal()
 if (failed > 0) {
   console.error(`\n${failed} hardening check(s) failed`)
   process.exit(1)

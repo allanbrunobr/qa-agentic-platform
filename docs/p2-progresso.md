@@ -1131,3 +1131,38 @@ ser (por exemplo, `vite build` do dashboard e `tsc` da API do template).
 - Os 477 testes do runtime e os testes do core (avaliação, motor e B-11) passam sem mudança.
 
 **Verificação:** `lint` 0; `typecheck` 0; `npm test` 0 (API 477, rotas `node:test` 27, web 121); `verify:release` 0; `test:e2e` 0.
+
+## Reinstalação preserva o `.env.local` — feito
+
+**O que mudou** (`local-package-installer.ts`)
+
+- O `.env.local` deixou de ser reescrito do zero numa reinstalação:
+  - as atribuições e os comentários do usuário são mantidos como estão;
+  - uma chave de provedor só é acrescentada se ainda não existir;
+  - uma chave que já está no arquivo não é sobrescrita, mesmo que a instalação tenha resolvido
+    outra.
+- Linhas que não são atribuição (por exemplo, `echo PLANTED`) são descartadas, e o cabeçalho do
+  instalador não se repete.
+- Os valores mantidos não são revalidados aqui: o loader do runtime já recusa valores inseguros
+  quando lê o arquivo (S-03).
+- O metadata (`anthropicEnvSource`) e a validação da chave passam a usar a chave que fica em vigor.
+  Se ela já estava no arquivo, a origem é `target/.agentic-qa/.env.local`.
+- `docs/generated-files.md` descreve a mescla.
+
+**Teste** (`testReinstallMergesEnvLocal` em `hardening.regression.test.ts`)
+
+- Cenário: reinstalação sobre um `.env.local` com `PLAYWRIGHT_BASE_URL`, um comentário,
+  `ANTHROPIC_API_KEY` escolhida pelo usuário e `echo PLANTED`, com outras chaves resolvidas pela
+  instalação.
+- Antes da correção, 4 das 8 checagens falharam: variável e comentário perdidos, chave sobrescrita e
+  metadata apontando a origem errada.
+- Agora:
+  - variável, comentário e chave do usuário ficam;
+  - a chave OpenAI que faltava entra;
+  - a linha inválida sai;
+  - cada chave aparece uma vez;
+  - o modo continua `0600`.
+- As checagens anteriores (isolamento do T-06, chave entre aspas, recusa atômica do B-10) continuam
+  passando.
+
+**Verificação:** `lint` 0; `typecheck` 0; `npm test` 0 (API 477, rotas `node:test` 27, web 121); `verify:release` 0; `test:e2e` 0.
