@@ -14,19 +14,25 @@ import { assertUsableToken, tokenFromHeaders, tokensMatch } from './runtime-toke
  *   any handler runs, for every method, including the WebSocket upgrade.
  *
  * - Token: every request except GET/HEAD /health must carry the local API token (header
- *   `x-agentic-token` or `Authorization: Bearer`), compared in constant time. This also covers
- *   clients without an Origin header (curl, scripts, other local processes that cannot read the
- *   runtime's data/ folder).
+ *   `x-agentic-token` or `Authorization: Bearer`), compared in constant time. It closes the API
+ *   port to local clients without the token (curl, scripts, processes that cannot read data/).
+ *
+ * Limit: the dashboard's Vite dev server adds the token to everything it proxies, and the dashboard
+ * page itself has no login. While the dashboard runs, any client that can reach its port on
+ * 127.0.0.1 gets the same access as the dashboard, token included. Closing that needs a login on the
+ * dashboard; until then the dashboard port is the boundary, not the token.
  */
 
 const LOOPBACK_HOSTNAMES = new Set(['127.0.0.1', 'localhost', '[::1]', '::1'])
 
+/** Launcher default (scripts/start-local-dashboard.generated.sh). */
 export const DEFAULT_WEB_PORT = 5176
+/** `npm run dev:web` in the template (packages/web/package.json). */
+export const DEV_WEB_PORT = 5173
 
 export function localWebOrigins(env: NodeJS.ProcessEnv = process.env): Set<string> {
   return new Set([
-    `http://127.0.0.1:${DEFAULT_WEB_PORT}`,
-    `http://localhost:${DEFAULT_WEB_PORT}`,
+    ...[DEFAULT_WEB_PORT, DEV_WEB_PORT].flatMap((port) => [`http://127.0.0.1:${port}`, `http://localhost:${port}`]),
     ...(env['AGENTIC_QA_WEB_ORIGIN'] ?? '').split(',').map((origin) => origin.trim()).filter(Boolean),
   ])
 }

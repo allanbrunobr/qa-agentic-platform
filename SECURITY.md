@@ -40,6 +40,11 @@ This is an alpha, single-maintainer project. The areas that matter most:
   calls the API through its own Vite dev server, which adds the token to proxied requests on the
   server side. To call the API yourself, send the header with the contents of that file.
 
+  Known limit: the dashboard has no login. While it runs, any client that can reach the dashboard
+  port on `127.0.0.1` (including another local user or a sandboxed process) gets the dashboard's
+  access to the API, because the proxy adds the token for it. The token closes the API port, not
+  the dashboard port. Do not run the dashboard on a machine shared with untrusted local users.
+
 Running the generated dashboard on a public interface is not supported. Bind it to localhost.
 Extra host names can be allowed with `AGENTIC_QA_ALLOWED_HOSTS`, and extra dashboard origins with
 `AGENTIC_QA_WEB_ORIGIN` (both comma-separated).

@@ -18,6 +18,8 @@ falhava antes dela e uma checagem por mutação: com a correção desfeita, o te
 
 **Para o Allan (exige decisão, conta ou acesso):**
 
+- Decidir se o dashboard deve ter login. Sem isso, a porta do dashboard dá acesso à API a qualquer
+  cliente local (ver "Limite" no item do token).
 - Rodar o job de gitleaks do CI quando houver PR.
 - Runtimes já instalados em outros repositórios não recebem estas correções sem reinstalar
   (`install-local`); não há mecanismo de upgrade (A-03 do relatório).
@@ -105,6 +107,21 @@ de WebSocket recusado e aceito; o parser de `Host`.
 
 **Limite:** o dev server do Vite é o portão do dashboard. Ele escuta em `127.0.0.1`, o Vite recusa
 `Host` estrangeiro, e a API recusa `Origin` estrangeiro mesmo quando a requisição vem pelo proxy.
+Como o dashboard não tem login, qualquer cliente que alcance a porta do dashboard em `127.0.0.1`,
+inclusive outro usuário local ou um processo em sandbox, recebe o token pelo proxy. O token fecha a
+porta da API, não a do dashboard. Isso está escrito no `SECURITY.md` e nos comentários do guard e
+do proxy.
+
+**Achados da checagem pré-PR (`pre-pr-contradicoes`) sobre o commit do token, corrigidos no commit
+seguinte:**
+
+1. O README do template prometia que `npm run dev:web` (porta 5173) funcionava pelo proxy, mas o
+   guard só aceitava `Origin` da porta 5176, então escritas e WebSocket davam 403. Era regressão: no
+   `main`, o CORS só omitia headers. Agora as portas 5176 e 5173 são aceitas por padrão. Há teste, e
+   a mutação que tira a 5173 faz 2 testes falharem.
+2. O comentário do guard prometia que o token cobria "outros processos locais", o que é falso
+   enquanto o dashboard roda (ver o limite acima). Comentário e docs foram corrigidos. A correção de
+   fato exige login no dashboard e fica como decisão do Allan.
 
 ## S-02 · Discovery escreve e apaga fora do repositório via symlink — feito
 

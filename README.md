@@ -161,7 +161,7 @@ Runtime variables, read by the generated runtime:
 | `PLAYWRIGHT_BASE_URL` | Base URL of the frontend under test. |
 | `HEADLESS` | Set `false` to show the browser during runs. |
 | `AGENTIC_QA_FORCE_DETERMINISTIC_RUNTIME` | Set `1` to run with deterministic tools and no model calls. |
-| `AGENTIC_QA_WEB_ORIGIN` | Comma-separated dashboard origins the API accepts. The launcher sets it. Any other `Origin` gets `403`. |
+| `AGENTIC_QA_WEB_ORIGIN` | Comma-separated extra dashboard origins the API accepts. Ports 5176 (launcher) and 5173 (`dev:web`) on `127.0.0.1`/`localhost` are always accepted. Any other `Origin` gets `403`. |
 | `AGENTIC_QA_ALLOWED_HOSTS` | Comma-separated extra host names the API accepts in the `Host` header. Loopback names are always accepted; anything else gets `403`. |
 | `AGENTIC_QA_API_TOKEN_PATH` | Location of the local API token. Default `.agentic-qa/data/runtime-api.token`, created on first start. Every API request except `GET /health` needs the header `x-agentic-token` with its contents; the dashboard adds it through its proxy. |
 | `AGENTIC_QA_API_URL` | Where the dashboard's dev-server proxy forwards `/api` and `/ws`. The launcher sets it. |

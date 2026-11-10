@@ -10,8 +10,11 @@ import type { ProxyOptions } from 'vite'
  * The token is read from the runtime's data/ folder on each request, so a token created by the API
  * after the dev server started is picked up.
  *
- * Why this is safe: the dev server listens on 127.0.0.1 and Vite rejects foreign Host headers; the
+ * What protects it: the dev server listens on 127.0.0.1 and Vite rejects foreign Host headers; the
  * proxy keeps the browser's Origin header, and the API rejects any Origin other than the dashboard.
+ *
+ * Limit: the dashboard has no login, so any client that can reach this port on 127.0.0.1 is treated
+ * as the dashboard and gets the token added for it. The token closes the API port, not this one.
  */
 
 export const RUNTIME_TOKEN_HEADER = 'x-agentic-token'

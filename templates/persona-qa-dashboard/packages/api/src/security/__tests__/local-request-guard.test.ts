@@ -127,6 +127,32 @@ describe('local request guard: Origin header (cross-site requests)', () => {
     expect(response.headers['access-control-allow-origin']).toBe(WEB_ORIGIN)
   })
 
+  // `npm run dev:web` serves the dashboard on 5173 and the launcher on 5176; both reach the API through
+  // the same-origin proxy, which keeps the browser's Origin. Before the guard, main accepted these.
+  it.each(['http://127.0.0.1:5173', 'http://localhost:5173', 'http://localhost:5176'])(
+    'lets the dashboard origin %s reach the handler',
+    async (origin) => {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/p2/runs',
+        headers: { host: 'localhost:3001', origin, 'content-type': 'application/json', ...AUTH },
+        payload: JSON.stringify({}),
+      })
+      expect(response.statusCode).toBe(400)
+      expect(response.json().error).toBe('invalid_body')
+    },
+  )
+
+  it('rejects another local port as an origin unless configured', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/p2/runs',
+      headers: { host: 'localhost:3001', origin: 'http://127.0.0.1:8080', 'content-type': 'application/json', ...AUTH },
+      payload: JSON.stringify({}),
+    })
+    expect(response.statusCode).toBe(403)
+  })
+
   it('answers the local dashboard preflight that carries the token', async () => {
     const response = await app.inject({
       method: 'OPTIONS',
