@@ -6,6 +6,7 @@ import {
   ControlPlaneError,
   allowedWebOrigins,
   ensureControlPlaneToken,
+  isLoopbackHost,
   readJsonBody,
   tokenFromRequest,
   tokensMatch,
@@ -87,11 +88,18 @@ export async function createPlatformApiServer(options: PlatformServerOptions = {
     const url = new URL(request.url ?? '/', `http://${CONTROL_PLANE_HOST}:${apiPort}`)
     const origin = typeof request.headers.origin === 'string' ? request.headers.origin : ''
 
+    // Before anything else, on every method: a rebound domain or a foreign page is refused even when
+    // it holds the token (S-15).
+    if (!isLoopbackHost(request.headers.host)) {
+      sendJson(request, response, webPort, 403, { error: 'host_not_allowed' })
+      return
+    }
+    if (origin && !allowedWebOrigins(webPort).includes(origin)) {
+      sendJson(request, response, webPort, 403, { error: 'origin_not_allowed' })
+      return
+    }
+
     if (method === 'OPTIONS') {
-      if (origin && !allowedWebOrigins(webPort).includes(origin)) {
-        sendJson(request, response, webPort, 403, { error: 'origin_not_allowed' })
-        return
-      }
       const headers: Record<string, string> = { vary: 'origin' }
       if (origin && allowedWebOrigins(webPort).includes(origin)) {
         headers['access-control-allow-origin'] = origin

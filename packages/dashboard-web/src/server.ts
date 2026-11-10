@@ -1,6 +1,6 @@
 import { createServer } from 'node:http'
 import path from 'node:path'
-import { CONTROL_PLANE_HOST, ensureControlPlaneToken } from '../../dashboard-api/src/control-plane-guard.ts'
+import { CONTROL_PLANE_HOST, ensureControlPlaneToken, isLoopbackHost } from '../../dashboard-api/src/control-plane-guard.ts'
 
 const WEB_PORT = Number(process.env.AGENTIC_PLATFORM_WEB_PORT ?? 4177)
 const API_PORT = Number(process.env.AGENTIC_PLATFORM_API_PORT ?? 3101)
@@ -1649,6 +1649,14 @@ export async function createPlatformWebServer(options: {
     token,
   })
   const server = createServer((request, response) => {
+    // The page embeds the control-plane token: never serve anything under a non-loopback Host, or a
+    // DNS-rebinding page could read the token under its own domain (S-15).
+    if (!isLoopbackHost(request.headers.host)) {
+      response.writeHead(403, { 'content-type': 'application/json; charset=utf-8' })
+      response.end(JSON.stringify({ error: 'host_not_allowed' }))
+      return
+    }
+
     if ((request.method ?? 'GET') === 'GET' && (request.url ?? '/') === '/') {
       response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
       response.end(html)

@@ -4,6 +4,7 @@
  */
 import { spawn, spawnSync } from 'node:child_process'
 import { cp, lstat, mkdtemp, mkdir, readdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises'
+import { request as httpRequest } from 'node:http'
 import { createServer as createNetServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -425,8 +426,64 @@ async function testDiscoveryConfinement() {
   }
 }
 
+// S-15 (docs/analise-20261109.md): the dashboard page embeds the control-plane token, so a DNS-rebinding
+// page could read it under its own domain and then call the API with it. Both servers must refuse a
+// non-loopback Host, and the API must refuse a foreign Origin on every method, not only on OPTIONS.
+function rawRequest(port: number, options: { method?: string; path: string; headers: Record<string, string> }) {
+  return new Promise<{ status: number; body: string }>((resolve, reject) => {
+    const req = httpRequest({ host: '127.0.0.1', port, method: options.method ?? 'GET', path: options.path, headers: options.headers }, (res) => {
+      let body = ''
+      res.setEncoding('utf8')
+      res.on('data', (chunk) => { body += chunk })
+      res.on('end', () => resolve({ status: res.statusCode ?? 0, body }))
+    })
+    req.on('error', reject)
+    req.end()
+  })
+}
+
+async function testControlPlaneRebinding() {
+  const temp = await mkdtemp(path.join(tmpdir(), 'agentic-rebinding-'))
+  process.env.AGENTIC_DATA_DIR = path.join(temp, 'data')
+  process.env.AGENTIC_CONTROL_PLANE_TOKEN_PATH = path.join(temp, 'data', 'control-plane.token')
+  const token = 'b'.repeat(64)
+  const { createPlatformApiServer } = await import('./server.ts')
+  const { createPlatformWebServer } = await import('../../dashboard-web/src/server.ts')
+  const api = await createPlatformApiServer({ token, webPort: 4177 })
+  const web = await createPlatformWebServer({ token, apiPort: 3101, webPort: 4177 })
+  const apiPort = (await listen(api.server)).port
+  const webPort = (await listen(web.server)).port
+  try {
+    const rebound = await rawRequest(webPort, { path: '/', headers: { host: `evil.example:${webPort}` } })
+    assert(rebound.status === 403, `dashboard page refuses a rebound Host (got ${rebound.status})`)
+    assert(!rebound.body.includes(token), 'dashboard page does not hand the token to a rebound Host')
+    const local = await rawRequest(webPort, { path: '/', headers: { host: `127.0.0.1:${webPort}` } })
+    assert(local.status === 200 && local.body.includes(token), 'dashboard page still serves the token on a loopback Host')
+    const localhostName = await rawRequest(webPort, { path: '/', headers: { host: `localhost:${webPort}` } })
+    assert(localhostName.status === 200, 'dashboard page accepts localhost as Host')
+
+    const apiRebound = await rawRequest(apiPort, { path: '/api/adapters', headers: { host: `evil.example:${apiPort}`, 'x-agentic-token': token } })
+    assert(apiRebound.status === 403, `control-plane API refuses a rebound Host even with the token (got ${apiRebound.status})`)
+    const apiForeignOrigin = await rawRequest(apiPort, {
+      path: '/api/adapters',
+      headers: { host: `127.0.0.1:${apiPort}`, origin: 'http://evil.example', 'x-agentic-token': token },
+    })
+    assert(apiForeignOrigin.status === 403, `control-plane API refuses a foreign Origin on GET, not only on OPTIONS (got ${apiForeignOrigin.status})`)
+    const apiLocal = await rawRequest(apiPort, {
+      path: '/api/adapters',
+      headers: { host: `127.0.0.1:${apiPort}`, origin: 'http://127.0.0.1:4177', 'x-agentic-token': token },
+    })
+    assert(apiLocal.status === 200, `control-plane API still serves the dashboard origin with the token (got ${apiLocal.status})`)
+  } finally {
+    await new Promise((resolve) => api.server.close(resolve))
+    await new Promise((resolve) => web.server.close(resolve))
+    await rm(temp, { recursive: true, force: true })
+  }
+}
+
 console.log('Running hardening regression tests...\n')
 await testControlPlane()
+await testControlPlaneRebinding()
 await testTokenFileMode()
 await testSessionStore()
 await testRedactionAndDiscovery()

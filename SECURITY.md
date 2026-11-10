@@ -23,8 +23,10 @@ This is an alpha, single-maintainer project. The areas that matter most:
   `local_confinement_refused` instead of writing or deleting through the link. Folders copied from
   the repository into the host-source snapshot are read without following symlinks.
   `.env.local` is rewritten on install and is not sourced by the launcher.
-- **Control plane.** `dev:api` and `dev:web` listen on `127.0.0.1`. Requests other than
-  `GET /health` require the token in `data/control-plane.token`.
+- **Control plane.** `dev:api` and `dev:web` listen on `127.0.0.1`. Both refuse any request
+  whose `Host` is not a loopback name, so a DNS-rebinding page cannot load the dashboard (which
+  embeds the token) under its own domain. The API also refuses a foreign `Origin` on every method.
+  Requests other than `GET /health` require the token in `data/control-plane.token`.
 
 - **Generated runtime API.** It listens on `127.0.0.1` and checks every request before any route
   runs, in this order:

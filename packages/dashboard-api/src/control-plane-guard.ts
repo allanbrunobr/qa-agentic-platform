@@ -20,6 +20,20 @@ export function allowedWebOrigins(webPort: number): string[] {
   ]
 }
 
+const LOOPBACK_HOSTNAMES = new Set(['127.0.0.1', 'localhost', '[::1]'])
+
+/**
+ * True when the Host header names loopback. A DNS-rebinding page reaches 127.0.0.1 under its own
+ * domain name, so its requests carry that domain here; refusing them keeps the dashboard page (which
+ * embeds the token) and the API out of its reach.
+ */
+export function isLoopbackHost(value: string | undefined): boolean {
+  if (!value) return false
+  const trimmed = value.trim().toLowerCase()
+  const match = /^(\[::1\]|[a-z0-9.-]+)(?::\d{1,5})?$/.exec(trimmed)
+  return Boolean(match?.[1] && LOOPBACK_HOSTNAMES.has(match[1]))
+}
+
 export async function ensureControlPlaneToken(tokenPath = controlPlaneTokenPath()): Promise<string> {
   await fs.mkdir(path.dirname(tokenPath), { recursive: true })
   const created = randomBytes(32).toString('hex')
