@@ -187,6 +187,27 @@ describe('ToolPolicySensor', () => {
     const result = await toolPolicySensor(context);
     expect(result.status).toBe('pass');
   });
+
+  // Pre-PR finding #8: the runtime offers the step's support tools (evidence, findings) next to its
+  // capability (B-04), so the scenario policy must accept them; another tool still fails the step.
+  it('accepts the support tools a step is offered, and still refuses any other tool', async () => {
+    const stepOutput = (tools: string[]) => ({
+      stepIndex: 0,
+      agentId: 'sales_associate',
+      output: { customerId: '123' },
+      toolCalls: tools.map((tool) => ({ tool, args: {} })),
+      findings: [],
+      durationMs: 100,
+      success: true,
+    });
+
+    const policy = { ...makeContext().scenario, allowedTools: ['registerCustomer'] };
+    const supported = await toolPolicySensor(makeContext({ scenario: policy, stepOutput: stepOutput(['registerCustomer', 'captureScreenshot', 'collectDomSnippet', 'reportFinding']) }));
+    expect(supported.status).toBe('pass');
+
+    const outside = await toolPolicySensor(makeContext({ scenario: policy, stepOutput: stepOutput(['registerCustomer', 'deleteEverything']) }));
+    expect(outside.status).toBe('fail');
+  });
 });
 
 describe('checkToolPolicy', () => {

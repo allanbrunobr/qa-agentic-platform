@@ -93,7 +93,7 @@ try {
   check(columns(db, 'p2_sessions').includes('run_id') && columns(db, 'runs').includes('high_count'), 'the pending migrations added the missing columns')
   check((db.prepare("SELECT status FROM p2_sessions WHERE session_id = 'old-session'").get() as { status?: string } | undefined)?.status === 'complete', 'existing sessions are kept')
   check((db.prepare('SELECT count(*) AS n FROM runs').get() as { n: number }).n === 1, 'existing runs are kept')
-  check(JSON.stringify(db.prepare('SELECT component, version FROM schema_migrations ORDER BY component').all()) === JSON.stringify([{ component: 'dashboard', version: 1 }, { component: 'phase2-sessions', version: 1 }]), 'both components are recorded')
+  check(JSON.stringify(db.prepare('SELECT component, version FROM schema_migrations ORDER BY component').all()) === JSON.stringify([{ component: 'dashboard', version: 1 }, { component: 'phase2-sessions', version: 1 }, { component: 'phase2-sessions', version: 2 }]), 'both components are recorded')
   db.close()
   const backupBytes = upgraded?.backup ? await readFile(path.join(installed, upgraded.backup)).catch(() => null) : null
   check(Boolean(backupBytes?.equals(originalBytes)), 'the database was backed up, byte for byte, before migrating')
@@ -101,7 +101,7 @@ try {
   const devDb = new DatabaseSync(devDbFile)
   check(Boolean(devUpgraded?.backup) && columns(devDb, 'p2_sessions').includes('run_id'), 'the dev:api database (packages/api) is backed up and migrated too')
   devDb.close()
-  check(JSON.stringify(upgraded?.applied) === JSON.stringify({ dashboard: [1], 'phase2-sessions': [1] }), `the applied migrations are reported (${JSON.stringify(upgraded?.applied)})`)
+  check(JSON.stringify(upgraded?.applied) === JSON.stringify({ dashboard: [1], 'phase2-sessions': [1, 2] }), `the applied migrations are reported (${JSON.stringify(upgraded?.applied)})`)
   check(await readFile(adapterFile, 'utf8') === '[{"id":"reviewed-by-hand"}]', 'adapter files reviewed by the user are untouched')
   check((await readFile(path.join(installed, '.env.local'), 'utf8')).includes('PLAYWRIGHT_BASE_URL=http://127.0.0.1:4100'), 'the user variables in .env.local are kept')
   const after = JSON.parse(await readFile(metadataPath, 'utf8')) as { templateVersion?: string; lastUpgrade?: { previousTemplateVersion?: string; upgradedAt?: string } }

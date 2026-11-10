@@ -1,4 +1,5 @@
 import type { SensorFn } from '../services/sensor-runner.js';
+import { STEP_SUPPORT_TOOLS } from '../services/step-support-tools.js';
 
 const TOOL_CATEGORY_MAP: Record<string, string> = {
   navigate: 'browser',
@@ -34,7 +35,8 @@ export const toolPolicySensor: SensorFn = async (context) => {
         violations.push('Tool call is missing a tool/name identifier');
         continue;
       }
-      if (!scenario.allowedTools.includes(toolName)) {
+      // The step's support tools (evidence, findings) are offered with every step capability (B-04).
+      if (!scenario.allowedTools.includes(toolName) && !STEP_SUPPORT_TOOLS.has(toolName)) {
         violations.push(`Tool "${toolName}" is not allowed by scenario policy`);
       }
     }

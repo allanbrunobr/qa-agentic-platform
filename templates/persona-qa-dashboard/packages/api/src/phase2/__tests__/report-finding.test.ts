@@ -126,6 +126,25 @@ describe('reportFinding', () => {
     expect(offered).toEqual(['captureScreenshot', 'reportFinding', 'submitOrder'])
   })
 
+  // Pre-PR findings #4 and #5 (docs/p2-progresso.md).
+  it('keeps expected and actual on the stored finding', async () => {
+    const { runtime, sessionService, sessionId } = setup([
+      call('a', 'submitOrder'), call('b', 'captureScreenshot', { description: 'total' }), call('c', 'reportFinding', finding(['shot-1'])), end,
+    ])
+    await runtime.executeStep('shopper', STEP, { sessionId })
+    const stored = sessionService.getSession(sessionId)?.findings[0]
+    expect(stored).toEqual(expect.objectContaining({ expected: 'Total reduced by 10%', actual: 'Total unchanged' }))
+  })
+
+  it('stores only the evidence ids that were captured in this step', async () => {
+    const { runtime, sessionService, sessionId } = setup([
+      call('a', 'submitOrder'), call('b', 'captureScreenshot', { description: 'total' }), call('c', 'reportFinding', finding(['shot-1', 'made-up-id'])), end,
+    ])
+    const result = await runtime.executeStep('shopper', STEP, { sessionId })
+    expect(result.findings[0]?.evidence).toEqual(['shot-1'])
+    expect(sessionService.getSession(sessionId)?.findings[0]?.evidence).toEqual(['shot-1'])
+  })
+
   it('is registered by the runtime bootstrap', () => {
     const runtime = createPhase2Runtime({ deterministic: true, dbPath: ':memory:' } as never)
     expect(runtime.toolRegistry.has('reportFinding')).toBe(true)

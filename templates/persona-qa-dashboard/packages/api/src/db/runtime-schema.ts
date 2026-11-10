@@ -346,6 +346,17 @@ export function runtimeMigrations(
 ): Record<RuntimeSchemaComponent, Migration[]> {
   return {
     dashboard: [baselineMigration(DASHBOARD_SCHEMA_SQL, openReference)],
-    'phase2-sessions': [baselineMigration(SESSION_SCHEMA_SQL, openReference)],
+    'phase2-sessions': [
+      baselineMigration(SESSION_SCHEMA_SQL, openReference),
+      {
+        // The expected and actual behaviour an agent reports with a finding (reportFinding, B-04).
+        version: 2,
+        name: 'findings.expected_actual',
+        up(db) {
+          db.exec('ALTER TABLE p2_session_findings ADD COLUMN expected TEXT');
+          db.exec('ALTER TABLE p2_session_findings ADD COLUMN actual TEXT');
+        },
+      },
+    ],
   };
 }

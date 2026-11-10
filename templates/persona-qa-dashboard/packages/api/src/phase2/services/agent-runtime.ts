@@ -13,6 +13,7 @@ import type {
 import type { ScenarioStep } from '../types/scenario-types.js'
 import type { ExecutionTarget, ToolContext, ToolResult } from '../types/tool-types.js'
 import { REPORT_FINDING_TOOL, type ReportedFinding } from '../tools/finding-tools.js'
+import { STEP_SUPPORT_TOOLS } from './step-support-tools.js'
 import { COMPOSITE_CAPABILITY_TOOLS } from './composite-capabilities.js'
 import { buildStepInstructionEnvelope, getGlobalAgenticInstructions } from './instruction-layer.js'
 import type { L5LearningSignal, RuntimeLearningOverlay, SessionService } from './session-service.js'
@@ -53,8 +54,6 @@ export function wrapUntrustedToolOutput(content: string): string {
   ].join('\n')
 }
 
-/** Tools that help a step report what it saw without performing it. */
-const STEP_SUPPORT_TOOLS = new Set(['captureScreenshot', 'collectDomSnippet', REPORT_FINDING_TOOL])
 
 function describeIncompleteStop(stopReason: string | undefined): string | null {
   if (stopReason === 'max_tokens') return 'Model output was truncated (max_tokens) before the step finished'
@@ -994,7 +993,8 @@ export class AgentRuntime {
       severity: finding.severity,
       title: finding.title,
       description: finding.description,
-      evidence: finding.evidenceArtifactIds,
+      // Only the ids that were captured in this step: the model may list others.
+      evidence,
       agentRole: profile.role,
       ...(stepId ? { stepId } : {}),
       ...(finding.expected ? { expected: finding.expected } : {}),
@@ -1005,7 +1005,7 @@ export class AgentRuntime {
       severity: finding.severity,
       title: finding.title,
       description: finding.description,
-      evidence: finding.evidenceArtifactIds,
+      evidence,
     })
     return { ok: true, output: { recorded: true, findingId: stored?.id ?? null } }
   }

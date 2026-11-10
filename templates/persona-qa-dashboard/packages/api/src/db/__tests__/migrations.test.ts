@@ -5,6 +5,7 @@ import Database from 'better-sqlite3'
 import { afterEach, describe, expect, it } from 'vitest'
 import { closeDb, initDb } from '../index.js'
 import { applyMigrations, SchemaTooNewError, type Migration } from '../migrations.js'
+import { runtimeMigrations } from '../runtime-schema.js'
 import { SessionService } from '../../phase2/services/session-service.js'
 
 // A-03 (docs/analise-20261109.md): the runtime is copied into each target repository and its schema
@@ -138,6 +139,22 @@ describe('databases written before versioning', () => {
     expect(index).toBeDefined()
   })
 
+  it('a database that stopped at migration 1 gets migration 2: findings keep expected and actual', () => {
+    const file = tempDbPath()
+    const db = new Database(file)
+    applyMigrations(db, 'phase2-sessions', runtimeMigrations(() => new Database(':memory:'))['phase2-sessions'].slice(0, 1))
+    db.close()
+    expect(columns(file, 'p2_session_findings')).not.toContain('expected')
+
+    const service = new SessionService(file)
+    const session = service.createSession('checkout')
+    service.storeFinding(session.id, { type: 'agent_finding', severity: 'high', title: 'Total ignores the discount', expected: 'Total reduced', actual: 'Total unchanged' })
+
+    expect(columns(file, 'p2_session_findings')).toEqual(expect.arrayContaining(['expected', 'actual']))
+    expect(service.getSession(session.id)?.findings[0]).toEqual(expect.objectContaining({ expected: 'Total reduced', actual: 'Total unchanged' }))
+    expect(recordedVersions(file)).toContainEqual({ component: 'phase2-sessions', version: 2 })
+  })
+
   it('SessionService refuses a database from a newer runtime', () => {
     const file = tempDbPath()
     new SessionService(file)
@@ -179,6 +196,7 @@ describe('databases written before versioning', () => {
     expect(recordedVersions(file)).toEqual([
       { component: 'dashboard', version: 1 },
       { component: 'phase2-sessions', version: 1 },
+      { component: 'phase2-sessions', version: 2 },
     ])
   })
 })

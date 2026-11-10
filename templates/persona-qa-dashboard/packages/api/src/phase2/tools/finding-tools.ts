@@ -43,7 +43,8 @@ const reportFindingHandler: ToolHandler = async (input) => {
 export const reportFindingMetadata: ToolMetadata = {
   name: REPORT_FINDING_TOOL,
   description: 'Record a defect you observed in the application under test. Describe what was expected and what happened. '
-    + 'If your evidence policy requires it, first call captureScreenshot in this step and pass its artifactId in evidenceArtifactIds.',
+    + 'If your evidence policy requires it, first call captureScreenshot in this step and pass its artifactId in evidenceArtifactIds. '
+    + 'The step ends as soon as its action produces the step artifacts, so call captureScreenshot and reportFinding in the same response as that action, or before it.',
   inputSchema: {
     type: 'object',
     properties: {

@@ -1272,3 +1272,17 @@ de fechar, em dois lotes.
 | #9, #12 README e documentação diziam que o `*_OVERRIDE` sempre vence, mas na reinstalação vence a chave já presente no `.env.local` | README (ordem das fontes), `environment-variables.md` e o comentário do instalador explicam que a ordem só decide uma chave ausente | — |
 
 **Verificação (lote 1):** `lint` 0; `typecheck` 0; `npm test` 0 (API 477, rotas `node:test` 27, web 121); `verify:release` 0; `test:e2e` 0.
+
+### Lote 2 · `reportFinding` (B-04) — feito
+
+| Achado | Correção | Teste (falhou antes) |
+|---|---|---|
+| #4 `expected` e `actual` do `reportFinding` eram descartados ao gravar o achado | **Migração 2** do componente `phase2-sessions` (`findings.expected_actual`), que acrescenta as duas colunas em `p2_session_findings`. É o primeiro uso real do versionamento do A-03. `storeFinding` grava e `getSession` devolve os dois campos | `report-finding.test.ts`: achado guardado com `expected`/`actual`. `migrations.test.ts`: um banco parado na v1 recebe a v2 e guarda os campos |
+| #5 A evidência gravada era a lista do modelo, não a validada (`['shot-1','made-up-id']`) | Grava-se só a evidência capturada no passo, tanto no banco quanto na saída do passo | `report-finding.test.ts`: só `['shot-1']` |
+| #8 As ferramentas de suporte oferecidas ao passo (B-04) eram recusadas pelo sensor de política do cenário, que reprovava o passo; e, em sequência, o passo terminava antes delas | `STEP_SUPPORT_TOOLS` virou um módulo único (`step-support-tools.ts`), usado pelo runtime e pelo sensor, que agora as aceita. A descrição do `reportFinding` manda chamá-lo na mesma resposta da ação, ou antes | `sensors-policy.test.ts`: as ferramentas de suporte passam e uma ferramenta de fora continua reprovando |
+
+- As expectativas de `schema_migrations` nos testes do A-03 e do `upgrade-local` passaram a incluir
+  `phase2-sessions` v2.
+- O `upgrade-local` de uma instalação antiga aplica agora `[1, 2]`.
+
+**Verificação (lote 2):** `lint` 0; `typecheck` 0; `npm test` 0 (API 481, rotas `node:test` 27, web 121); `verify:release` 0; `test:e2e` 0.

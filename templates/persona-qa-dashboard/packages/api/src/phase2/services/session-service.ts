@@ -68,6 +68,8 @@ type FindingRow = {
   agent_id: string | null
   step_id: string | null
   created_at: string
+  expected: string | null
+  actual: string | null
 }
 
 type CheckpointRow = {
@@ -612,7 +614,7 @@ export class SessionService {
 
     const findingRows = this.sqlite
       .prepare(
-        `SELECT id, session_id, severity, title, description, evidence, agent_id, step_id, created_at
+        `SELECT id, session_id, severity, title, description, evidence, agent_id, step_id, created_at, expected, actual
          FROM p2_session_findings
          WHERE session_id = ?
          ORDER BY created_at ASC, id ASC`,
@@ -673,6 +675,8 @@ export class SessionService {
         title: finding.title ?? 'Untitled',
         description: finding.description ?? undefined,
         evidence: finding.evidence ? parseStoredJson(finding.evidence) : null,
+        ...(finding.expected ? { expected: finding.expected } : {}),
+        ...(finding.actual ? { actual: finding.actual } : {}),
         createdAt: finding.created_at,
         timestamp: finding.created_at,
       })),
@@ -2421,6 +2425,8 @@ export class SessionService {
       evidence: finding.evidence ?? null,
       agentId: finding.agentId ?? finding.agentRole ?? null,
       stepId: finding.stepId ?? null,
+      expected: finding.expected ?? null,
+      actual: finding.actual ?? null,
       createdAt: timestamp,
     })
 
@@ -2460,14 +2466,16 @@ export class SessionService {
       evidence: unknown
       agentId: unknown
       stepId: unknown
+      expected?: unknown
+      actual?: unknown
       createdAt: string
     },
   ): number {
     const result = this.sqlite
       .prepare(
         `INSERT INTO p2_session_findings (
-           session_id, severity, title, description, evidence, agent_id, step_id, created_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+           session_id, severity, title, description, evidence, agent_id, step_id, expected, actual, created_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         sessionId,
@@ -2477,6 +2485,8 @@ export class SessionService {
         finding.evidence ? JSON.stringify(finding.evidence) : null,
         typeof finding.agentId === 'string' ? finding.agentId : null,
         typeof finding.stepId === 'string' ? finding.stepId : null,
+        typeof finding.expected === 'string' ? finding.expected : null,
+        typeof finding.actual === 'string' ? finding.actual : null,
         finding.createdAt,
       )
 
