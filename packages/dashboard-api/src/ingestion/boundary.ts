@@ -15,7 +15,7 @@
  * See docs/decisions/0004-untrusted-repository-content.md
  */
 
-import { createHash } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 
 export type SourceKind =
   | 'repo_file'
@@ -120,10 +120,15 @@ export function sanitizeExternalContent(
   // Do not embed attacker-controlled path text in the header line itself.
   // The original path (if relevant) is associated via the call site (e.g. "FILE #N (hash=...)") 
   // or lives inside the neutralized body for the data block.
-  const pathInfo = ''; // path omitted from header; use content_hash + source only for safe metadata in header.
-  const wrapped = `${BEGIN_MARKER} (source=${kind}, content_hash=${contentHash}, trust=LOW)
+  //
+  // S-13: the content must not be able to close its own block. A marker inside the content is
+  // neutralized, and each block carries a random nonce on both lines, so the content cannot know the
+  // end line that actually closes it.
+  cleaned = cleaned.replace(/(?:BEGIN|END)_EXTERNAL_UNTRUSTED_CONTENT/gi, '[REDACTED_BOUNDARY_MARKER]');
+  const nonce = randomBytes(8).toString('hex');
+  const wrapped = `${BEGIN_MARKER} nonce=${nonce} (source=${kind}, content_hash=${contentHash}, trust=LOW)
 ${cleaned}
-${END_MARKER}`;
+${END_MARKER} nonce=${nonce}`;
 
   return {
     sanitized: wrapped,

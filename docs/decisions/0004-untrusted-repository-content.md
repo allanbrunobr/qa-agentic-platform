@@ -12,7 +12,7 @@ The platform cannot know which repositories are trustworthy. It installs into an
 
 All external content crosses an explicit ingestion boundary before it is used in a prompt: `packages/dashboard-api/src/ingestion/boundary.ts`.
 
-- Content is wrapped in `BEGIN_EXTERNAL_UNTRUSTED_CONTENT` / `END_EXTERNAL_UNTRUSTED_CONTENT` markers, so the prompt can tell the model to treat it as data.
+- Content is wrapped in `BEGIN_EXTERNAL_UNTRUSTED_CONTENT nonce=N` / `END_EXTERNAL_UNTRUSTED_CONTENT nonce=N` markers, so the prompt can tell the model to treat it as data. The nonce is random per block and marker text inside the content is neutralized, so the content cannot end its own block early.
 - Each piece carries provenance: source kind (`repo_file`, `repo_path`, `dom_evidence`, `tool_output`, `cli_stdout`), trust level, and a content hash.
 - Common injection markers (fake role prefixes such as `System:`, "ignore previous instructions") are neutralized.
 - Prompt builders call the boundary functions (`sanitizeRepoFileSnippet`, `sanitizeFileList`, `sanitizeRepoPath`, `sanitizeExternalContent`). They do not concatenate raw content.
