@@ -525,6 +525,20 @@ export class AgentRuntime {
         } catch (error) {
           if (error instanceof ModelDeadlineExceededError) {
             const syntheticClosures = this.closePendingToolCalls(sessionId, 'timeout')
+            // Same rule as the model-deadline path: if earlier calls of this batch already produced the
+            // step's artifacts, the step completed. The whole-batch check (B-10) must not turn a
+            // finished step into a timeout because a later call in the batch ran out of time.
+            const completedBeforeDeadline = this.completeFromToolOutputIfValid(
+              profile,
+              sessionId,
+              error.message,
+              accumulatedOutput,
+              collectedFindings,
+              collectedEvidence,
+              expectedArtifacts,
+              startedAt,
+            )
+            if (completedBeforeDeadline) return this.finishStep(sessionId, profile, completedBeforeDeadline)
             await this.hooks.emit('onTimeout', {
               sessionId,
               agentRole: profile.role,

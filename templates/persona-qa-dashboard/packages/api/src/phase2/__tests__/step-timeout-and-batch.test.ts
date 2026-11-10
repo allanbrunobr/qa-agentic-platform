@@ -87,4 +87,35 @@ describe('early completion inside a tool batch', () => {
     expect(executed).toEqual(['verifyFinanceDashboard', 'verifyReportsPage'])
     expect(result.output).toMatchObject({ financeValidated: true, reportsChecked: true })
   })
+
+  it('a later call in the batch that hits the deadline does not discard artifacts already produced', async () => {
+    const registry = new ToolRegistry()
+    registry.register('verifyFinanceDashboard', async () => ({ ok: true, output: { financeValidated: true } }), {
+      name: 'verifyFinanceDashboard', description: 'finance', requiresBrowser: false, tags: [],
+    })
+    registry.register('verifyReportsPage', async () => {
+      await sleep(400)
+      return { ok: true, output: { reportsChecked: true } }
+    }, { name: 'verifyReportsPage', description: 'reports', requiresBrowser: false, tags: [] })
+    const runtime = new AgentRuntime(scripted([
+      {
+        text: '',
+        toolCalls: [
+          { id: 'a', name: 'verifyFinanceDashboard', input: {} },
+          { id: 'b', name: 'verifyReportsPage', input: {} },
+        ],
+        stopReason: 'tool_use',
+      },
+    ]), registry, createSessionServiceStub())
+    runtime.registerAgent(profile(5_000))
+
+    const result = await runtime.executeStep('operator', {
+      id: 'close_month', name: 'close month', agentId: 'operator', capabilityId: 'validateManagementClosure', order: 0,
+      requiredArtifacts: [], producedArtifacts: ['financeValidated'], timeoutMs: 150,
+    }, { sessionId: 'batch-deadline-session' })
+
+    // Same rule as the model-deadline path: the step's artifacts were produced, so it completed.
+    expect(result.status).toBe('completed')
+    expect(result.output).toMatchObject({ financeValidated: true })
+  })
 })

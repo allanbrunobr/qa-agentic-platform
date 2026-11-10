@@ -1012,3 +1012,38 @@ Testes em `phase2/__tests__/minor-security.test.ts`; os 3 casos falharam antes d
 7. **T-07:** o diretório temporário desta máquina tem cerca de 245 diretórios `agentic-platform-*`
    (11 GB), muitos das rodadas deste trabalho. Não apaguei porque fica fora do repositório.
 8. **Rotação de credenciais:** nenhuma credencial foi usada ou tocada neste trabalho.
+
+## Revisão final
+
+**Checagens pedidas pela revisão**
+
+1. **A-03 contra o schema publicado.** Os testes do A-03 usavam tabelas antigas montadas à mão.
+   - Agora o DDL foi extraído da `v0.1.0`, que é igual ao `origin/main`: `ensureTables`, `initDb` e
+     as 6 `ALTER` de então.
+   - Um banco criado com ele e com uma sessão gravada foi aberto pelo código novo.
+   - Com `better-sqlite3` e com o shim do instalador: sessão antiga legível, sessão nova criada e
+     as duas versões registradas em `schema_migrations`.
+   - A afirmação "adota bancos de instalações antigas" vale para o schema publicado.
+2. **A-01: ordem de instalação no CI.** `contract-conformance.test.ts` e o `tsc` da raiz importam
+   código do template.
+   - O `ci.yml` (só lido, não alterado) roda `npm run setup:runtime` (`npm ci` do template) antes
+     do `typecheck` e do `npm test`.
+   - O README manda fazer o mesmo.
+3. **B-10: deadline no meio do lote.** Com a checagem depois do lote inteiro, uma chamada posterior
+   que estourava o deadline transformava em `timeout` um passo cujos artefatos já tinham sido
+   produzidos. O caminho do deadline do modelo já aproveitava a saída; o da ferramenta passou a
+   fazer o mesmo. Caso novo em `step-timeout-and-batch.test.ts`, visto falhando antes (`timeout`).
+
+**Notas para o Allan**
+
+- `@vitest/coverage-v8` é devDependency do template, então vai junto em cada runtime instalado.
+- B-11: os dois adapters do control plane usam os hooks do `reference-store`, que reportam
+  `executedCapabilities`. O scaffold `adapters/template` não implementa `executeStep`; um adapter
+  novo precisa reportar o que executou, senão a checagem de capability fica inerte (nada é gravado
+  como usado).
+- zod 4: não há `.default(…).optional()` no código. As mensagens de erro de validação devolvidas aos
+  clientes (`details: …issues`) mudaram de texto em relação ao zod 3.
+- `p2-correcoes` não tem carimbo do `pre-pr-contradicoes`. O workflow precisa rodar antes de
+  qualquer PR.
+
+**Verificação:** `typecheck` 0; `npm test` 0 (API 477, rotas `node:test` 27, web 121); `verify:release` 0; `test:e2e` 0.
