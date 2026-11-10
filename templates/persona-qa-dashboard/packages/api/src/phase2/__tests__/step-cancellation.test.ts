@@ -51,7 +51,7 @@ describe('step cancellation', () => {
     }, { name: 'slowTool', description: 'slow', requiresBrowser: false, tags: [] })
     const responses: ModelResponse[] = [{ text: '', toolCalls: [{ id: 't', name: 'slowTool', input: {} }], stopReason: 'tool_use' }]
     let index = 0
-    const provider: ModelProvider = { chat: vi.fn(async () => responses[index++] ?? { text: 'done', toolCalls: [], stopReason: 'end_turn' }) }
+    const provider: ModelProvider = { chat: vi.fn(async () => responses[index++] ?? { text: 'done', toolCalls: [], stopReason: 'end_turn' as const }) }
     const sessionService = createSessionServiceStub()
     const session = sessionService.createSession('probe')
 
@@ -68,7 +68,7 @@ describe('step cancellation', () => {
   it('aborts the model call when the step times out', async () => {
     let options: ModelProviderOptions | undefined
     const provider: ModelProvider = {
-      chat: vi.fn(async (_messages, _tools, received) => {
+      chat: vi.fn(async (_messages: unknown, _tools: unknown, received?: ModelProviderOptions): Promise<ModelResponse> => {
         options = received
         await sleep(400)
         return { text: 'late', toolCalls: [], stopReason: 'end_turn' }

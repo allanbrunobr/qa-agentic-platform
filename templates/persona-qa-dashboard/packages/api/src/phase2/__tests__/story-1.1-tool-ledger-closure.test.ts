@@ -89,7 +89,7 @@ describe('Story 1.1: Close Tool Ledger on Timeout and Interruption', () => {
         (e) => e.type === 'info' && (e.payload as Record<string, unknown>)?.['event'] === 'tool_synthetic_closure',
       )
       expect(closureEvents).toHaveLength(1)
-      expect((closureEvents[0].payload as Record<string, unknown>)?.['reason']).toBe('interruption')
+      expect((closureEvents[0]!.payload as Record<string, unknown>)?.['reason']).toBe('interruption')
     })
 
     it('returns false for unclosed tool calls', () => {

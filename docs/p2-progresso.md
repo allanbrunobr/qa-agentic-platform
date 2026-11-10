@@ -461,3 +461,31 @@ espera, por exemplo) não é interrompida no meio; o que o passo impede é a pr�
 | `escapeHtml` do cliente sem trocar `<` | passa | falha (5 checagens) |
 
 **Verificação:** `typecheck` 0; `npm test` 0 (API 458, web 120); `verify:release` 0; `test:e2e` 0.
+
+## T-03 · O typecheck excluía os testes do runtime — feito
+
+**O que mudou**
+
+- `templates/persona-qa-dashboard/packages/api/tsconfig.test.json` estende o `tsconfig.json` e
+  inclui `__tests__`. O `npm run typecheck` da raiz passa a rodar `tsc -p tsconfig.test.json` depois
+  do typecheck de produção.
+- Medido antes de corrigir: 37 erros. Os 29 do relatório mais 8 em testes escritos nas próprias
+  P1/P2 deste trabalho, exatamente o risco que o item aponta.
+- Correções, todas em testes:
+  - 22 fixtures de `AgentStepOutput` sem `findings`, que a produção sempre preenche, ganharam
+    `findings: []`.
+  - Mocks de provedor passaram a ter `stopReason` literal e assinatura tipada.
+  - Hooks de teste deixaram de devolver o `number` de `Array.push`.
+  - Dois `noUncheckedIndexedAccess` resolvidos com `!` em fixtures conhecidas.
+- `local-request-guard.test.ts` (S-01) importava `ws`, que nenhum `package.json` declara: vinha
+  transitivamente e sem tipos. O teste de upgrade agora fala HTTP cru sobre `net.connect` e lê a
+  linha de status. Ninguém precisou instalar `@types/ws`.
+
+**Medição do instrumento**
+
+- Um `findings: []` removido de `sensors.test.ts`: o `typecheck` novo sai com 2; o antigo
+  (`package.json` do HEAD), com 0.
+- O cliente de upgrade novo continua distinguindo o guard: sem a checagem de Origin, o caso
+  cross-site falha; sem a de token, o caso sem token falha.
+
+**Verificação:** `typecheck` 0 (agora com os testes do runtime); `npm test` 0 (API 458, web 120); `verify:release` 0; `test:e2e` 0.

@@ -1,6 +1,6 @@
-import type { AddressInfo } from 'node:net'
+import { randomBytes } from 'node:crypto'
+import { connect, type AddressInfo } from 'node:net'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import WebSocket from 'ws'
 import { buildApp } from '../../app.js'
 import { closeDb, initDb } from '../../db/index.js'
 import { hostnameFromHostHeader, isAllowedHost } from '../local-request-guard.js'
@@ -254,19 +254,37 @@ describe('local request guard: WebSocket upgrade', () => {
   })
   afterAll(async () => { await app.close() })
 
-  // Resolves with the HTTP status of the upgrade. An accepted socket is left to the route, which closes
-  // it (unknown run id); waiting for that close keeps app.close() from hanging on a half-closed socket.
+  // Resolves with the HTTP status line of the upgrade, sent over a raw TCP socket so the test does not
+  // need a WebSocket client package (the runtime declares none). The socket is closed and awaited, which
+  // keeps app.close() from hanging on a half-closed socket.
   function upgradeStatus(headers: Record<string, string>): Promise<number> {
     return new Promise((resolve, reject) => {
-      let status = 0
-      const socket = new WebSocket(`ws://127.0.0.1:${port}/ws/runs/1`, { headers })
-      socket.on('upgrade', (response) => { status = response.statusCode ?? 0 })
-      socket.on('close', () => resolve(status))
-      socket.on('unexpected-response', (_request, response) => {
-        resolve(response.statusCode ?? 0)
-        socket.terminate()
+      const lines = {
+        host: `127.0.0.1:${port}`,
+        connection: 'Upgrade',
+        upgrade: 'websocket',
+        'sec-websocket-version': '13',
+        'sec-websocket-key': randomBytes(16).toString('base64'),
+        ...headers,
+      }
+      const socket = connect(port, '127.0.0.1', () => {
+        socket.write(`GET /ws/runs/1 HTTP/1.1\r\n${Object.entries(lines).map(([key, value]) => `${key}: ${value}\r\n`).join('')}\r\n`)
       })
-      socket.on('error', (error) => { if (status === 0) reject(error) })
+      let received = ''
+      let status = 0
+      socket.on('data', (chunk: Buffer) => {
+        received += chunk.toString('latin1')
+        const match = /^HTTP\/1\.1 (\d{3})/.exec(received)
+        if (match && status === 0) {
+          status = Number(match[1])
+          socket.destroy()
+        }
+      })
+      socket.on('close', () => {
+        if (status) resolve(status)
+        else reject(new Error(`no HTTP status in upgrade reply: ${JSON.stringify(received.slice(0, 200))}`))
+      })
+      socket.on('error', reject)
     })
   }
 

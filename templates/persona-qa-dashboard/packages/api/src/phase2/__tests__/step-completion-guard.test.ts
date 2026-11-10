@@ -41,7 +41,7 @@ function runtimeWith(responses: ModelResponse[], toolOk = true) {
     name: 'doThing', description: 'does the thing', requiresBrowser: false, tags: [],
   })
   let index = 0
-  const provider: ModelProvider = { chat: vi.fn(async () => responses[index++] ?? { text: 'done', toolCalls: [], stopReason: 'end_turn' }) }
+  const provider: ModelProvider = { chat: vi.fn(async () => responses[index++] ?? { text: 'done', toolCalls: [], stopReason: 'end_turn' as const }) }
   const runtime = new AgentRuntime(provider, registry, createSessionServiceStub())
   runtime.registerAgent(profile())
   return runtime

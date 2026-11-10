@@ -43,7 +43,10 @@ function step(capabilityId: string) {
 
 function providerWith(responses: ModelResponse[]) {
   let index = 0
-  return { chat: vi.fn(async () => responses[index++] ?? { text: 'done', toolCalls: [], stopReason: 'end_turn' as const }) } satisfies ModelProvider
+  return {
+    chat: vi.fn(async (_messages: ModelMessage[], _tools: Array<{ name: string }>): Promise<ModelResponse> =>
+      responses[index++] ?? { text: 'done', toolCalls: [], stopReason: 'end_turn' }),
+  } satisfies ModelProvider
 }
 
 describe('S-05: per-step tool scope fails closed', () => {

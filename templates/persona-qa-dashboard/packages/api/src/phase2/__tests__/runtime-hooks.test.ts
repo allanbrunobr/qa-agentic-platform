@@ -20,10 +20,10 @@ describe('RuntimeHookBus', () => {
   it('emits runtime hooks around model execution and step completion', async () => {
     const hooks = new RuntimeHookBus()
     const events: string[] = []
-    hooks.register('beforeModelCall', (event) => events.push(event.name))
-    hooks.register('afterModelResponse', (event) => events.push(event.name))
-    hooks.register('beforeStepComplete', (event) => events.push(event.name))
-    hooks.register('afterStepComplete', (event) => events.push(event.name))
+    hooks.register('beforeModelCall', (event) => { events.push(event.name) })
+    hooks.register('afterModelResponse', (event) => { events.push(event.name) })
+    hooks.register('beforeStepComplete', (event) => { events.push(event.name) })
+    hooks.register('afterStepComplete', (event) => { events.push(event.name) })
 
     const provider: ModelProvider = {
       async chat(): Promise<ModelResponse> {

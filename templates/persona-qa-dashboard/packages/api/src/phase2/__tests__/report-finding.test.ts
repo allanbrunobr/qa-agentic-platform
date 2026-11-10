@@ -44,7 +44,7 @@ function setup(responses: ModelResponse[], requireScreenshot = true) {
   const sessionService: SessionService = createSessionServiceStub()
   const session = sessionService.createSession('checkout_flow')
   let index = 0
-  const provider: ModelProvider = { chat: vi.fn(async () => responses[index++] ?? { text: 'done', toolCalls: [], stopReason: 'end_turn' }) }
+  const provider: ModelProvider = { chat: vi.fn(async () => responses[index++] ?? { text: 'done', toolCalls: [], stopReason: 'end_turn' as const }) }
   const runtime = new AgentRuntime(provider, registry, sessionService)
   runtime.registerAgent(profile(requireScreenshot))
   return { runtime, provider, sessionService, sessionId: session.id }
