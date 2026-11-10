@@ -1,6 +1,7 @@
 import { dump } from 'js-yaml';
 import { loadScenario } from '../scenarios/index.js';
 import type { SessionService } from './session-service.js';
+import { COMPOSITE_CAPABILITY_TOOLS } from './composite-capabilities.js';
 
 type Session = NonNullable<ReturnType<SessionService['getSession']>>;
 
@@ -36,11 +37,7 @@ function deriveObservedToolsByStep(session: Session): Record<string, string[]> {
 function capabilityMatchesObservedTools(capabilityId: string, observedTools: string[]): boolean {
   if (observedTools.includes(capabilityId)) return true;
 
-  const compositeCapabilityMap: Record<string, string[]> = {
-    validateManagementClosure: ['verifyFinanceDashboard', 'verifyReportsPage'],
-  };
-
-  const compositeTools = compositeCapabilityMap[capabilityId];
+  const compositeTools = COMPOSITE_CAPABILITY_TOOLS[capabilityId];
   if (!compositeTools) return false;
 
   return compositeTools.every((tool) => observedTools.includes(tool));

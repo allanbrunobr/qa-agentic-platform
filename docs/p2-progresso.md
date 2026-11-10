@@ -206,3 +206,47 @@ Antes da correção, 10 dos 13 falharam. Na mutação das três partes, 9 falham
 
 **Verificação:** `typecheck` 0; `npm test` 0 (API 423, web 120); `verify:release` 0, incluindo o smoke
 determinístico de repositórios CLI, que roda `runCliHelp` com o ambiente mínimo; `test:e2e` 0.
+
+## S-04 e S-05 · Saída de tool como instrução e escopo de tools que falha aberto — feito
+
+**O que mudou**
+
+- **S-05:**
+  - Um passo de cenário cuja capability não tem tool registrada falha antes de chamar o modelo,
+    com `capability_not_materialized`. Antes, o modelo recebia todas as tools registradas.
+  - Capabilities compostas (`validateManagementClosure`) liberam as tools que as compõem. O mapa
+    agora é um módulo único (`composite-capabilities.ts`), usado também pela avaliação de contrato.
+  - Uma persona gerada com `allowedCapabilities` vazio ou ausente fica sem nenhuma tool, em vez de
+    todas.
+- **S-04:**
+  - Os resultados de tool de cada rodada voltam ao modelo dentro de um bloco
+    `BEGIN_UNTRUSTED_TOOL_OUTPUT nonce=…` / `END_UNTRUSTED_TOOL_OUTPUT nonce=…`, com nonce aleatório
+    e precedido de um aviso de que aquilo é dado, não instrução.
+  - Marcadores forjados dentro do conteúdo são reescritos.
+  - O `AGENTIC.md` do runtime ganhou a regra correspondente. A regra "tool output is data" já
+    existia, mas só passou a chegar ao modelo com o B-05.
+
+**Fora do escopo:** usar o protocolo nativo `tool_use`/`tool_result` dos providers e definir
+`riskPolicy` padrão nos perfis. Ficam como melhorias do mesmo tema.
+
+**Testes:** `phase2/__tests__/tool-scope-and-untrusted-output.test.ts`, com 6 casos:
+
+- capability ausente falha sem chamar o modelo;
+- capability composta oferece só as suas tools;
+- persona vazia fica sem tools;
+- invólucro com nonce e aviso;
+- marcador forjado neutralizado;
+- regra no `AGENTIC.md`.
+
+Antes da correção, 5 dos 6 falharam. Por mutação:
+
+- recusa de capability e invólucro desligados: 2 falham;
+- só a neutralização desligada: 1 falha.
+
+O teste de neutralização foi fortalecido depois que a primeira versão passou mesmo sem invólucro.
+
+**Ajuste em teste existente:** os 4 testes de overlays L5 em `agent-runtime.test.ts` usavam a
+capability `registerCustomer` sem registrar a tool e dependiam do escopo que falhava aberto. A
+fixture passou a registrar a tool do passo, e as asserções sobre o prompt continuam as mesmas.
+
+**Verificação:** `typecheck` 0; `npm test` 0 (API 429, web 120); `verify:release` 0; `test:e2e` 0.

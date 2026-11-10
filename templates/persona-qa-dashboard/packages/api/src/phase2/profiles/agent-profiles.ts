@@ -158,7 +158,8 @@ function profileFromGeneratedPersona(persona: AdapterPersonaModel): AgentProfile
       browserAccess: !nonFrontendRuntime,
       api: nonFrontendRuntime || undefined,
       file: nonFrontendRuntime || undefined,
-      allowedTools: persona.allowedCapabilities?.length ? persona.allowedCapabilities : undefined,
+      // S-05: no declared capabilities means no tools, not every tool.
+      allowedTools: persona.allowedCapabilities ?? [],
     },
     evidencePolicy: {
       requireScreenshotForFinding: !nonFrontendRuntime,
