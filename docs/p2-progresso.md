@@ -1604,7 +1604,9 @@ pnpm (resolvendo pelo `package.json`, não pelo `package-lock.json`). Os três a
 `node_modules` refeito com `npm ci`. É o risco que o A-04 descreve, observado.
 
 **Fica para o Allan (decisão de produto), intocado:** `/api/stats`, `/api/insights`, `/api/sync`, a sync no
-start da API, as tabelas legadas e o `drizzle-orm`. Fato para decidir: no launcher (cwd `.agentic-qa`), o
+start da API, as tabelas legadas e o `drizzle-orm`. `/api/sync` e `/api/sync/summary` não têm chamador no
+dashboard, no CLI nem no control plane (só os próprios testes); os únicos chamadores eram `StaleBanner` e
+`SyncDiagnostics`, removidos acima por serem inalcançáveis. Fato para decidir: no launcher (cwd `.agentic-qa`), o
 diretório de dados da sync é `<repo>/../../integration-test/persona-tests` (fora do repositório-alvo),
 então as tabelas legadas ficam vazias e as contagens legadas de `/api/stats` ficam em zero. A página
 **Insights** não fica vazia, e não deve ser removida: com as tabelas vazias, `/api/insights` devolve três
@@ -1620,7 +1622,7 @@ agêntico e não está na lista do A-04; ficou. M-03 (renomear `persona-qa`, `/a
 escolha de nomes e aliases pelo Allan e colidiria com as branches abertas; não comecei. A-05 (arquivos-deus)
 é refatoração incremental sem mudança funcional em vista; não comecei.
 
-**Verificação (A-04, antes do rebase, sobre 16dc856):** `audit:deps` 0; `lint` 0; `typecheck` 0; `build` 0; `npm test` 0 (API 515 = 503 + 18 do teste novo − 6 do S-08; rotas `node:test` 25 = 27 − 2 de `runs.test.ts`; web 25 = 125 − 100 dos testes dos componentes removidos); `verify:release` 0; `test:e2e` 0. A verificação do HEAD rebaseado está na seção da revisão pré-PR abaixo.
+**Verificação (A-04, antes do rebase, sobre 16dc856):** `audit:deps` 0; `lint` 0; `typecheck` 0; `build` 0; `npm test` 0 (API 515 = 503 + 18 do teste novo − 6 do S-08; rotas `node:test` 25 = 27 − 2 de `runs.test.ts`; web 25 = 125 − 100 dos testes dos componentes removidos); `verify:release` 0; `test:e2e` 0. A verificação do `0d64b8d` (HEAD rebaseado com a correção do #3) está no fim desta seção.
 
 ### Revisão pré-PR de `7d311dd` (HEAD de `a04-legado`): 4 vivos, 3 refutados — corrigidos
 
@@ -1628,4 +1630,16 @@ escolha de nomes e aliases pelo Allan e colidiria com as branches abertas; não 
 |---|---|---|
 | #1, #2 O registro acima dizia que a página Insights só lia as tabelas legadas e ficava sempre vazia, e oferecia removê-la. Com as tabelas vazias ela mostra três vereditos verdes, e é a tela do painel de governança L5 | Texto corrigido acima: a decisão é sobre os vereditos e as contagens, não sobre a página | — (documento) |
 | #3 O `upgrade-local` (e uma reinstalação) só copiava por cima: os arquivos que o template removeu (rotas legadas, runner, páginas) ficavam na instalação atualizada, inclusive o spawn de `pnpm`, e no git do host que versiona `.agentic-qa/` | Depois de copiar cada diretório de código do runtime (`packages/api/src`, `packages/web`), o instalador apaga os arquivos que o template não tem mais, e os diretórios que ficam vazios. O que a cópia deixa de fora (`node_modules`, `dist`, artefatos, `data`, `adapter`) não é visitado. O resultado do `install-local` e do `upgrade-local` lista `removedStaleFiles` | `upgrade-local.test.ts`: instalação com `routes/runs.ts`, `services/runner.ts`, `pages/Runs.tsx` e um diretório só legado → depois do upgrade, removidos e listados; `node_modules`, `dist`, screenshot, cenário do `adapter` e `data/` ficam. Antes: 6 falhas. Mutação: sem o filtro de exclusão → apaga `node_modules`; sem remover diretório vazio → 1 falha; sem a remoção → 6 |
-| #4 A linha de verificação do A-04 era da árvore anterior ao rebase (API 515), não do HEAD que vira PR (522) | A linha acima diz de que árvore é; a verificação do novo HEAD está abaixo, com números medidos nele | — |
+| #4 A linha de verificação do A-04 era da árvore anterior ao rebase (API 515), não do HEAD que vira PR (522) | A linha acima diz de que árvore é; a verificação medida no `0d64b8d` vem logo depois desta tabela | — |
+
+**Verificação (`0d64b8d`, medida no M5 antes da regra de não rodar trabalho pesado nele):** `audit:deps` 0; `lint` 0; `typecheck` 0; `build` 0; `npm test` 0 (API 522, rotas `node:test` 25, web 25); `verify:release` 0; `test:e2e` 0; `gitleaks` sobre `main..HEAD` 0.
+
+### Revisão pré-PR de `0d64b8d` (base `origin/p2-correcoes`): 4 vivos, 4 refutados — corrigidos
+
+| Achado | Correção | Teste (falhou antes) |
+|---|---|---|
+| #1 `docs/testing.md` usava como exemplo de teste de rota o `runs.test.ts` apagado | O exemplo usa `stats.test.ts` | — (documento) |
+| #2 Esta seção prometia a verificação do HEAD "abaixo", e não havia | As frases apontam para a linha de verificação do `0d64b8d`, logo acima. A verificação do HEAD final é a do `ci-ok-remoto.sh` no M1, registrada no corpo do PR | — (documento) |
+| #3 A varredura do `upgrade-local` apagava qualquer arquivo que o template não tem em `packages/api/src` e `packages/web`, inclusive um banco que o upgrader aceita por `DATABASE_URL` (`src/persona-qa.db`, resolvido a partir de `packages/api`): o banco sumia e a migração o recriava vazio | A varredura só apaga arquivos de código-fonte (`.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.css`, `.html`, `.json`, `.md`, `.svg` e afins). Banco, WAL e qualquer outro dado ficam | `upgrade-local.test.ts`, rodado isolado no M5 com `M5_LEVE=1`: banco em `packages/api/src` com `DATABASE_URL=src/persona-qa.db` mantém a tabela marcadora; `export.csv` e `local.sqlite` ficam; nenhum banco em `removedStaleFiles`. Antes: 4 falhas. Mutação do filtro: na fila do M1 |
+| #4 O commit `7d311dd` justifica manter `/api/sync` por ter consumidores, e não tem nenhum | O registro de decisão acima diz que `/api/sync` não tem chamador; o corpo do PR também. A mensagem do commit já publicado fica como está | — (documento) |
+

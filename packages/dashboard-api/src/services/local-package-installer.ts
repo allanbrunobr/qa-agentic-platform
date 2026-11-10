@@ -101,12 +101,21 @@ async function copyTemplateEntry(fromRoot: string, toRoot: string, relativePath:
   })
 }
 
+/** The kinds of file the runtime code directories ship: the only ones the stale-file sweep removes. */
+const RUNTIME_SOURCE_EXTENSIONS = new Set(['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs', '.css', '.html', '.json', '.md', '.svg'])
+
+function isRuntimeSourceFile(fileName: string): boolean {
+  return RUNTIME_SOURCE_EXTENSIONS.has(path.extname(fileName).toLowerCase())
+}
+
 /**
  * Removes, under one of the runtime code directories, the files the template no longer has. The copy
  * only adds and overwrites, so without this an upgraded install kept code a newer template had removed
  * (the legacy run routes and their runner after A-04). Paths the copy leaves out (dependencies, builds,
- * data, artifacts: shouldExclude) are never visited. Symlinks are refused before any write
- * (assertNoSymlinksUnder), and are not followed here. Returns the removed files, relative to the install.
+ * data, artifacts: shouldExclude) are never visited, and only runtime source files are removed
+ * (isRuntimeSourceFile): a database a DATABASE_URL points at under these directories, its WAL file or any
+ * other data is kept. Symlinks are refused before any write (assertNoSymlinksUnder), and are not followed
+ * here. Returns the removed files, relative to the install.
  */
 async function removeStaleRuntimeFiles(templateRoot: string, installedPath: string, relativeDir: string): Promise<string[]> {
   const removed: string[] = []
@@ -123,7 +132,7 @@ async function removeStaleRuntimeFiles(templateRoot: string, installedPath: stri
           await fs.rmdir(path.join(installedPath, entryRelative))
           remaining -= 1
         }
-      } else if (entry.isFile() && !inTemplate) {
+      } else if (entry.isFile() && !inTemplate && isRuntimeSourceFile(entry.name)) {
         await fs.unlink(path.join(installedPath, entryRelative))
         removed.push(entryRelative)
         remaining -= 1

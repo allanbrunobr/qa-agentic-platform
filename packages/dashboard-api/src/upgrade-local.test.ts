@@ -191,6 +191,41 @@ try {
   check(!(await exists(inStale('packages', 'web', 'src', 'legacy-only'))), 'and the directory it leaves empty')
   for (const file of keptFiles) check(await exists(file), `upgrade keeps what the copy leaves out: ${path.relative(stale, file)}`)
   check(await exists(inStale('packages', 'api', 'src', 'app.ts')), 'the current runtime code is in place')
+  // Pre-PR review of 0d64b8d, #3: the sweep deleted any file the template lacks, so a database the
+  // upgrader accepts through DATABASE_URL under a swept directory was deleted before its migration.
+  // Only runtime source files are swept; data, databases and their WAL files are never deleted.
+  const dbStale = await tempRepo('stale-db')
+  await installLocalPackage({ repoPath: dbStale })
+  const inDbStale = (...parts: string[]) => path.join(dbStale, '.agentic-qa', ...parts)
+  const sweptDb = inDbStale('packages', 'api', 'src', 'persona-qa.db')
+  writeOldDatabase(sweptDb)
+  const marker = new DatabaseSync(sweptDb)
+  marker.exec("CREATE TABLE marker (v TEXT); INSERT INTO marker VALUES ('alive')")
+  marker.close()
+  // Not a -wal file: SQLite itself discards an invalid WAL beside the database it opens.
+  const keptBeside = [inDbStale('packages', 'api', 'src', 'export.csv'), inDbStale('packages', 'web', 'local.sqlite')]
+  for (const file of keptBeside) await writeFile(file, 'x')
+  const previousUrl = process.env.DATABASE_URL
+  process.env.DATABASE_URL = 'src/persona-qa.db'
+  let dbStaleResult
+  try {
+    dbStaleResult = await upgradeLocalPackage({ repoPath: dbStale })
+  } finally {
+    if (previousUrl === undefined) delete process.env.DATABASE_URL
+    else process.env.DATABASE_URL = previousUrl
+  }
+  check(await exists(sweptDb), 'a database under a swept directory survives the upgrade')
+  // A deleted database is recreated empty by the migration, so a missing table means its data was lost.
+  let markerRows: Array<{ v: string }> = []
+  try {
+    markerRows = new DatabaseSync(sweptDb).prepare('SELECT v FROM marker').all() as Array<{ v: string }>
+  } catch {
+    markerRows = []
+  }
+  check(markerRows[0]?.v === 'alive', `and keeps its data (got ${JSON.stringify(markerRows)})`)
+  for (const file of keptBeside) check(await exists(file), `a data file under a swept directory is kept: ${path.relative(dbStale, file)}`)
+  check(!(dbStaleResult?.removedStaleFiles ?? []).some((file) => /\.(db|sqlite)/.test(file)), 'no database is listed as removed')
+
   const removedReport = staleResult.removedStaleFiles ?? []
   check(removedReport.length === staleFiles.length && removedReport.every((file) => !path.isAbsolute(file)), `the upgrade result lists the removed files, relative (got ${JSON.stringify(removedReport)})`)
 } finally {
