@@ -11,6 +11,7 @@ import type {
 } from '../types/agent-types.js'
 import type { ScenarioStep } from '../types/scenario-types.js'
 import type { ExecutionTarget, ToolContext, ToolResult } from '../types/tool-types.js'
+import { REPORT_FINDING_TOOL, type ReportedFinding } from '../tools/finding-tools.js'
 import { buildStepInstructionEnvelope, getGlobalAgenticInstructions } from './instruction-layer.js'
 import type { L5LearningSignal, RuntimeLearningOverlay, SessionService } from './session-service.js'
 import { defaultRuntimeHookBus, type RuntimeHookBus } from './runtime-hooks.js'
@@ -28,6 +29,9 @@ export interface StepContext {
 
 /** Runtime-only context keys: handed to tools, never listed as artifacts in the model prompt. */
 const RUNTIME_ONLY_CONTEXT_KEYS = new Set(['page', 'sessionId', 'executionTarget'])
+
+/** Tools that help a step report what it saw without performing it. */
+const STEP_SUPPORT_TOOLS = new Set(['captureScreenshot', 'collectDomSnippet', REPORT_FINDING_TOOL])
 
 function describeIncompleteStop(stopReason: string | undefined): string | null {
   if (stopReason === 'max_tokens') return 'Model output was truncated (max_tokens) before the step finished'
@@ -471,6 +475,10 @@ export class AgentRuntime {
           throw error
         }
 
+        if (toolName === REPORT_FINDING_TOOL && result.ok) {
+          result = this.recordReportedFinding(profile, sessionId, stepId, result.output, collectedEvidence, collectedFindings)
+        }
+
         this.sessionService.appendEvent(sessionId, {
           type: 'tool_result',
           agentRole: profile.role,
@@ -497,9 +505,10 @@ export class AgentRuntime {
           }
         }
 
-        if (result.ok) successfulToolCalls += 1
+        // Support tools (evidence, findings) do not count as performing the step (B-03).
+        if (result.ok && !STEP_SUPPORT_TOOLS.has(toolName)) successfulToolCalls += 1
 
-        if (result.ok && result.output && typeof result.output === 'object' && !Array.isArray(result.output)) {
+        if (result.ok && toolName !== REPORT_FINDING_TOOL && result.output && typeof result.output === 'object' && !Array.isArray(result.output)) {
           Object.assign(accumulatedOutput, result.output as Record<string, unknown>)
         }
 
@@ -843,13 +852,66 @@ export class AgentRuntime {
       return profile
     }
 
+    // The step's capability, plus the support tools a step needs to report what it saw: a screenshot
+    // as evidence and reportFinding (B-04). Neither performs the step.
+    const supportTools = Array.from(STEP_SUPPORT_TOOLS).filter((tool) => this.toolRegistry?.has(tool))
     return {
       ...profile,
       toolPolicy: {
         ...profile.toolPolicy,
-        allowedTools: [expectedTool],
+        allowedTools: [expectedTool, ...supportTools.filter((tool) => tool !== expectedTool)],
       },
     }
+  }
+
+  /**
+   * Applies the agent's evidence policy to a reported finding, persists it, and adds it to the step
+   * output. Returns the tool result the model sees: an error tells it how to attach evidence.
+   */
+  private recordReportedFinding(
+    profile: AgentProfile,
+    sessionId: string,
+    stepId: string | undefined,
+    output: unknown,
+    collectedEvidence: string[],
+    collectedFindings: AgentStepOutput['findings'],
+  ): ToolResult {
+    const finding = (output as { reportedFinding?: ReportedFinding } | undefined)?.reportedFinding
+    if (!finding) {
+      return { ok: false, error: { code: 'invalid_finding', message: 'reportFinding returned no finding', retryable: false } }
+    }
+
+    const evidence = finding.evidenceArtifactIds.filter((id) => collectedEvidence.includes(id))
+    if (profile.evidencePolicy.requireScreenshotForFinding && evidence.length === 0) {
+      return {
+        ok: false,
+        error: {
+          code: 'finding_without_evidence',
+          message: 'This agent must attach evidence to findings: call captureScreenshot in this step and pass the returned artifactId in evidenceArtifactIds.',
+          retryable: true,
+        },
+      }
+    }
+
+    const stored = this.sessionService?.storeFinding(sessionId, {
+      type: 'agent_finding',
+      severity: finding.severity,
+      title: finding.title,
+      description: finding.description,
+      evidence: finding.evidenceArtifactIds,
+      agentRole: profile.role,
+      ...(stepId ? { stepId } : {}),
+      ...(finding.expected ? { expected: finding.expected } : {}),
+      ...(finding.actual ? { actual: finding.actual } : {}),
+    })
+    collectedFindings.push({
+      type: 'agent_finding',
+      severity: finding.severity,
+      title: finding.title,
+      description: finding.description,
+      evidence: finding.evidenceArtifactIds,
+    })
+    return { ok: true, output: { recorded: true, findingId: stored?.id ?? null } }
   }
 }
 

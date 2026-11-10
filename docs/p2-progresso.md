@@ -138,3 +138,34 @@ comportamento antigo.
 **Verificação:** `typecheck` 0; `npm test` 0 (API 402, web 120); `verify:release` 0; `test:e2e` 0. O
 e2e confirma que o caminho determinístico continua aprovando o app saudável (ele sempre chama a tool
 do passo) e reprovando o quebrado.
+
+## B-04 · O agente não tinha como registrar um finding — feito
+
+**O que mudou**
+
+- `phase2/tools/finding-tools.ts` (novo): tool `reportFinding`. Recebe `severity`, `title`,
+  `description`, `evidenceArtifactIds` e, opcionalmente, `expected`/`actual`, e valida a entrada
+  com zod. Ela é registrada no `runtime-bootstrap`.
+- `agent-runtime.ts` trata o resultado dela:
+  - aplica a política de evidência do perfil: com `requireScreenshotForFinding`, o finding precisa
+    citar um `artifactId` de screenshot capturado **neste passo**; senão o modelo recebe
+    `finding_without_evidence`, com instrução de como anexar, e nada é gravado;
+  - persiste o finding com `storeFinding` (que antes não tinha nenhum chamador) e o acrescenta aos
+    `findings` do passo.
+- O escopo de um passo de cenário passa a oferecer, além da capability, `captureScreenshot` e
+  `reportFinding`. Essas tools de apoio não contam como "executar o passo" para a regra do B-03.
+
+**Teste:** `phase2/__tests__/report-finding.test.ts`, com 8 casos:
+
+- finding com screenshot do passo é gravado e devolvido;
+- sem evidência, com política que exige, é recusado;
+- id de evidência não capturado no passo é recusado;
+- sem exigência de evidência, é gravado;
+- entrada inválida dá `invalid_finding`;
+- reportar só um finding não executa o passo;
+- as tools de apoio são oferecidas no escopo;
+- a tool é registrada pelo bootstrap.
+
+Antes, a tool não existia. Na mutação (tratamento desligado), 3 testes falham.
+
+**Verificação:** `typecheck` 0; `npm test` 0 (API 410, web 120); `verify:release` 0; `test:e2e` 0.
