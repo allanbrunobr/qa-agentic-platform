@@ -106,6 +106,73 @@ describe('step cancellation', () => {
     expect(signal?.aborted).toBe(true)
   })
 
+  it('aborts the signal when the step ends by throwing, not only through a normal finish', async () => {
+    let signal: AbortSignal | undefined
+    const registry = new ToolRegistry()
+    registry.register('quickTool', async (_input, context) => {
+      signal = context.signal
+      return { ok: true, output: {} }
+    }, { name: 'quickTool', description: 'quick', requiresBrowser: false, tags: [] })
+    const provider: ModelProvider = {
+      chat: vi.fn(async (): Promise<ModelResponse> => ({ text: '', toolCalls: [{ id: 'q', name: 'quickTool', input: {} }], stopReason: 'tool_use' })),
+    }
+    const sessionService = createSessionServiceStub()
+    const session = sessionService.createSession('probe')
+    // The session store fails while recording the tool result (a SQLite error, for example).
+    const appendEvent = sessionService.appendEvent.bind(sessionService)
+    sessionService.appendEvent = ((id: string, event: { type: string }) => {
+      if (event.type === 'tool_result') throw new Error('session store failed')
+      return appendEvent(id, event as never)
+    }) as typeof sessionService.appendEvent
+
+    await expect(new AgentRuntime(provider, registry, sessionService)
+      .executeStep(profile(5000), { sessionId: session.id, messages: [{ role: 'user', content: 'go' }] }))
+      .rejects.toThrow('session store failed')
+    expect(signal).toBeDefined()
+    expect(signal?.aborted).toBe(true)
+  })
+
+  it('one step ending does not abort another step running in the same session', async () => {
+    const signals: Record<string, AbortSignal | undefined> = {}
+    let releaseSlow!: () => void
+    const slowGate = new Promise<void>((resolve) => { releaseSlow = resolve })
+    const registry = new ToolRegistry()
+    registry.register('slowTool', async (_input, context) => {
+      signals.slow = context.signal
+      await slowGate
+      return { ok: true, output: {} }
+    }, { name: 'slowTool', description: 'slow', requiresBrowser: false, tags: [] })
+    registry.register('quickTool', async (_input, context) => {
+      signals.quick = context.signal
+      return { ok: true, output: {} }
+    }, { name: 'quickTool', description: 'quick', requiresBrowser: false, tags: [] })
+    const turns = new Map<string, number>()
+    const provider: ModelProvider = {
+      chat: vi.fn(async (messages: Array<{ content: string }>): Promise<ModelResponse> => {
+        const tool = messages.some((message) => message.content === 'RUN-SLOW') ? 'slowTool' : 'quickTool'
+        const turn = turns.get(tool) ?? 0
+        turns.set(tool, turn + 1)
+        return turn === 0
+          ? { text: '', toolCalls: [{ id: tool, name: tool, input: {} }], stopReason: 'tool_use' }
+          : { text: 'done', toolCalls: [], stopReason: 'end_turn' }
+      }),
+    }
+    const sessionService = createSessionServiceStub()
+    const session = sessionService.createSession('probe')
+    const runtime = new AgentRuntime(provider, registry, sessionService)
+
+    const slow = runtime.executeStep(profile(5000), { sessionId: session.id, messages: [{ role: 'user', content: 'RUN-SLOW' }] })
+    await vi.waitFor(() => expect(signals.slow).toBeDefined())
+    const quick = await runtime.executeStep(profile(5000), { sessionId: session.id, messages: [{ role: 'user', content: 'RUN-QUICK' }] })
+
+    expect(quick.status).toBe('completed')
+    expect(signals.quick?.aborted).toBe(true)
+    expect(signals.slow?.aborted).toBe(false)
+    releaseSlow()
+    await slow
+    expect(signals.slow?.aborted).toBe(true)
+  })
+
   it('evidence tools refuse to store an artifact after the step was aborted', async () => {
     const sessionService = createSessionServiceStub()
     const session = sessionService.createSession('probe')

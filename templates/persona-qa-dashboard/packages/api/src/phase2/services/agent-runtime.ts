@@ -94,7 +94,6 @@ export class AgentRuntime {
   private readonly agents = new Map<string, AgentProfile>()
   private readonly pendingToolCalls = new Map<string, Map<string, PendingToolCall>>()
   /** One AbortController per running step, keyed by session; aborted in finishStep (B-06). */
-  private readonly stepAborts = new Map<string, AbortController>()
 
   constructor(
     private readonly provider?: ModelProvider,
@@ -232,18 +231,29 @@ export class AgentRuntime {
       }
     }
 
+    // B-06: everything this step starts (tools, model calls) gets this signal. It is aborted when the
+    // step ends by any path, a thrown error included, so work that outlives the step (after a timeout)
+    // cannot keep acting for it. It belongs to this call only: another step of the same session keeps
+    // its own.
+    const stepAbort = new AbortController()
+    try {
+      return await this.runProfileStep(profileOrAgentId, stepOrContext as StepContext, stepAbort)
+    } finally {
+      stepAbort.abort()
+    }
+  }
+
+  private async runProfileStep(
+    profile: AgentProfile,
+    stepContext: StepContext,
+    stepAbort: AbortController,
+  ): Promise<AgentStepOutput> {
     if (!this.provider || !this.toolRegistry || !this.sessionService) {
       throw new Error('AgentRuntime requires provider, tool registry, and session service for profile execution')
     }
 
-    const profile = profileOrAgentId
-    const { sessionId, page, executionTarget } = stepOrContext as StepContext
-    // B-06: everything this step starts (tools, model calls) gets this signal, and finishStep aborts
-    // it, so work that outlives the step (after a timeout) cannot keep acting for it.
-    this.stepAborts.get(sessionId)?.abort()
-    const stepAbort = new AbortController()
-    this.stepAborts.set(sessionId, stepAbort)
-    const messages = [...(stepOrContext as StepContext).messages]
+    const { sessionId, page, executionTarget } = stepContext
+    const messages = [...stepContext.messages]
     const collectedFindings: AgentStepOutput['findings'] = []
     const collectedEvidence: string[] = []
     const accumulatedOutput: Record<string, unknown> = {}
@@ -609,12 +619,6 @@ export class AgentRuntime {
     profile: AgentProfile,
     output: AgentStepOutput,
   ): Promise<AgentStepOutput> {
-    // The step is over, whatever the outcome: stop any tool or model call still running for it (B-06).
-    const stepAbort = this.stepAborts.get(sessionId)
-    if (stepAbort) {
-      stepAbort.abort()
-      this.stepAborts.delete(sessionId)
-    }
     await this.hooks.emit('beforeStepComplete', {
       sessionId,
       agentRole: profile.role,

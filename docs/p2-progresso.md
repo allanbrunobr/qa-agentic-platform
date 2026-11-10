@@ -472,7 +472,7 @@ espera, por exemplo) não é interrompida no meio; o que o passo impede é a pr�
 - Medido antes de corrigir: 37 erros. Os 29 do relatório mais 8 em testes escritos nas próprias
   P1/P2 deste trabalho, exatamente o risco que o item aponta.
 - Correções, todas em testes:
-  - 22 fixtures de `AgentStepOutput` sem `findings`, que a produção sempre preenche, ganharam
+  - 21 fixtures de `AgentStepOutput` sem `findings`, que a produção sempre preenche, ganharam
     `findings: []`.
   - Mocks de provedor passaram a ter `stopReason` literal e assinatura tipada.
   - Hooks de teste deixaram de devolver o `number` de `Array.push`.
@@ -559,3 +559,35 @@ espera, por exemplo) não é interrompida no meio; o que o passo impede é a pr�
   com a corrigida, mostra "no activity yet".
 
 **Verificação:** `typecheck` 0; `npm test` 0 (API 458, web 121); `verify:release` 0; `test:e2e` 0.
+
+## Revisão dos itens já commitados
+
+### B-06, segunda parte · O passo que terminava por exceção não abortava o signal — feito
+
+- A primeira versão abortava o controlador dentro de `finishStep` e o guardava num `Map` indexado
+  por `sessionId`. Isso deixava dois furos:
+  - Se `executeStep` rejeitava sem passar por `finishStep` (um erro do `SessionService` ao gravar
+    o evento, por exemplo), o signal nunca era abortado.
+  - Um passo que terminava abortava o signal de outro passo em andamento na mesma sessão.
+- Agora o controlador é local a cada chamada. `executeStep` chama `runProfileStep` dentro de
+  `try/finally` e aborta no `finally`. O `Map` saiu.
+- Dois casos novos em `step-cancellation.test.ts`, os dois vistos falhando antes da correção:
+  - o `appendEvent` do `tool_result` lança e o signal tem de ficar abortado;
+  - dois passos concorrentes na mesma sessão: o que termina primeiro não aborta o outro.
+- Mutação: sem o `abort()` do `finally`, 5 dos 11 casos falham.
+
+### T-06 · Pontos conferidos
+
+- O runtime instalado também tem um caminho de validação de chave
+  (`validateProviderCredentials` em `runner.ts`). Ele não roda no gate, porque os dois lançamentos
+  de runtime nos verificadores passam `AGENTIC_QA_FORCE_DETERMINISTIC_RUNTIME=1`, e nesse modo o
+  runner não carrega as configurações de provedor. Conferido por leitura de código.
+- As instalações antigas do `testInstaller` já estavam isoladas: `chdir` para um diretório
+  temporário vazio, chaves removidas do ambiente e um `fetch` que lança.
+
+### T-03 · Correção de número
+
+- Eram 21 fixtures com `findings: []`, não 22. Contado com
+  `git show 0151068 | grep -c '^+ *findings: \[\],'`.
+
+**Verificação (revisão):** `typecheck` 0; `npm test` 0 (API 460, web 121); `verify:release` 0; `test:e2e` 0.
