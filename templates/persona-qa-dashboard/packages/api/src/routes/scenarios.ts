@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { eq, desc, sql, and, count as drizzleCount } from 'drizzle-orm';
+import { eq, desc, sql } from 'drizzle-orm';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import yaml from 'js-yaml';

@@ -96,7 +96,7 @@ export function Settings() {
 
   const environment = useMemo(() => ({
     dashboardUrl: window.location.origin,
-    apiUrl: import.meta.env.VITE_API_URL || 'http://localhost:3001',
+    apiUrl: `${window.location.origin}/api (proxied by the dashboard server)`,
     mode: import.meta.env.MODE,
   }), [])
 
@@ -291,7 +291,7 @@ export function Settings() {
           </div>
           <div>
             <InfoRow label="DB path" value=".agentic-qa/persona-qa.db" />
-            <InfoRow label="Artifacts path" value=".agentic-qa/packages/api/artifacts" />
+            <InfoRow label="Artifacts path" value=".agentic-qa/artifacts" />
             <InfoRow label="Last activity" value={lastActivity ? formatRelativeTime(lastActivity) : 'none'} />
           </div>
         </Card>

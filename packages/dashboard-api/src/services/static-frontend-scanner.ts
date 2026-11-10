@@ -705,10 +705,16 @@ function preserveMatchShape(match: string) {
   return match.replace(/[^\n]/g, ' ')
 }
 
-function looksLikeUtilityClassLabel(value: string) {
+export function looksLikeUtilityClassLabel(value: string) {
   if (!value) return false
   if (/^(?:[a-z]+-\d+(?:\.\d+)?\s*)+$/.test(value)) return true
-  if (/^(?:[a-z]+-[a-z0-9/.[\]]+\s*){2,}$/.test(value)) return true
+  // S-09: this used to be /^(?:[a-z]+-[a-z0-9/.[\]]+\s*){2,}$/, whose nested ambiguous quantifiers
+  // backtrack exponentially on target text (97 characters took 22.8 s). Checking whitespace-separated
+  // tokens one by one is linear, and labels this long are not utility class lists anyway.
+  if (value.length <= 300) {
+    const classTokens = value.trim().split(/\s+/)
+    if (classTokens.length >= 2 && classTokens.every((token) => /^[a-z]+(?:-[a-z0-9/.[\]]+)+$/.test(token))) return true
+  }
 
   const tokens = value.split(/\s+/).filter(Boolean)
   if (tokens.length === 0) return false
@@ -866,8 +872,9 @@ async function listFrontendRootCandidates(repoPath: string): Promise<string[]> {
 
   for (const candidate of uniqueCandidates) {
     try {
-      const stat = await fs.stat(candidate)
-      if (stat.isDirectory()) existing.push(candidate)
+      // lstat, not stat: a candidate root that is a symlink could point outside the repository (S-10).
+      const stat = await fs.lstat(candidate)
+      if (stat.isDirectory() && !stat.isSymbolicLink()) existing.push(candidate)
     } catch {
       // ignore missing candidate
     }

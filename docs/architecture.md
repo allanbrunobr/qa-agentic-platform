@@ -84,9 +84,9 @@ The runtime is the template in `templates/persona-qa-dashboard/`. Paths below ar
 | Tool registry | `phase2/services/tool-registry.ts`, `phase2/tools/*` | Registers tools with metadata (risk level, browser requirement). Generic capability tools come from `generated-adapter-tools.ts`. Evidence tools capture screenshots and refuse blank pages. |
 | Providers | `phase2/providers/*` | `anthropic`, `openai`, and `deterministic`. The deterministic provider maps each step to its declared tool without calling a model. It is used for non-frontend repositories and when `AGENTIC_QA_FORCE_DETERMINISTIC_RUNTIME=1`. |
 | Sensors | `phase2/sensors/*`, `phase2/services/sensor-runner.ts` | Per-step checks: artifacts produced, output shape, schema, timeout, tool policy, and trend against history. |
-| Contract evaluation | `phase2/services/contract-evaluation.ts` | Compares the session with its workflow contract and produces a verdict (see below). |
+| Contract evaluation | `phase2/services/contract-evaluation.ts` | Compares the session with its workflow contract and produces a verdict (see below). The verdict itself is in `contract-verdict.ts` and the gate thresholds in `quality-gate-decision.ts`; the control plane (`packages/core`) delegates to both, and `packages/core/src/runtime/contract-conformance.test.ts` requires the same verdict and gate status on both sides. |
 | Scenario quality gates | `phase2/services/scenario-quality-gates.ts` | Turns recent verdicts into a gate status (see below). |
-| Session store | `phase2/services/session-service.ts` | SQLite store for sessions, steps, events, artifacts, findings, and L4/L5 records. Default file `persona-qa.db` in the API working directory (`.agentic-qa/` when started by the launcher); override with `DATABASE_URL`. In the installed copy, the `better-sqlite3` import resolves to a small shim over Node's built-in `node:sqlite`, so no native build is needed. |
+| Session store | `phase2/services/session-service.ts` | SQLite store for sessions, steps, events, artifacts, findings, and L4/L5 records. Default file `persona-qa.db` in the API working directory (`.agentic-qa/` when started by the launcher); override with `DATABASE_URL`. The schema is versioned per component in `schema_migrations` (`db/migrations.ts`): migration 1 adopts a database from an older install by adding the columns it lacks, and a database from a newer runtime is refused. In the installed copy, the `better-sqlite3` import resolves to a small shim over Node's built-in `node:sqlite`, so no native build is needed. |
 
 ### Workflow contracts and verdicts
 
@@ -100,6 +100,8 @@ Each scenario has a workflow contract: an ordered list of steps, each with a rol
 
 While a session is still running, the verdict is `contract_evaluating`.
 
+A step's status is its last attempt. A step that failed and then completed on retry counts as complete, keeps its place in the step order, and is listed in `retriedSteps` (informational, not a violation or drift). A step whose last attempt failed is a violation.
+
 ### Scenario quality gates
 
 Gates look at the last 5 final sessions of a scenario:
@@ -109,6 +111,17 @@ Gates look at the last 5 final sessions of a scenario:
 | `restricted` | 3 or more violations, or 3 consecutive violations | New runs are rejected (`409 scenario_restricted_by_quality_gate`). |
 | `review_required` | At least 1 violation, 3 or more drifts, or 2 consecutive failures | Runs are allowed. The dashboard flags the scenario for review. |
 | `open` | Otherwise | Normal operation. |
+
+A restricted scenario cannot produce new sessions, so its window would never change on its own. After fixing the cause, reset the gate:
+
+```bash
+curl -X POST http://127.0.0.1:3201/api/p2/scenarios/<scenarioId>/quality-gate/reset \
+  -H "x-agentic-token: $(cat .agentic-qa/data/runtime-api.token)" \
+  -H 'content-type: application/json' \
+  -d '{"reason": "what was fixed (10 to 500 characters)"}'
+```
+
+The gate then ignores sessions that started before the reset, and the scenario requalifies on new runs: three new violations restrict it again. Each reset is stored with its reason and the status it cleared (table `p2_quality_gate_resets`), and is never deleted.
 
 See [ADR 0002](decisions/0002-deterministic-workflow-contracts.md) for why the verdict is computed deterministically instead of by a model.
 
@@ -154,7 +167,7 @@ The design rule for L5: loops produce **drafts and recommendations**. Nothing ch
 | Boundary | Rule | Where |
 | --- | --- | --- |
 | Host code | `install-local` and `discover-local` write only inside `<repo>/.agentic-qa/`. Discovery reads the repository and never modifies it. Re-running discovery replaces only `*.generated.*` files. | `local-package-installer.ts`, `local-discovery-materializer.ts` |
-| Untrusted content | Repository files and paths are untrusted. Before they reach an LLM prompt they are wrapped in `BEGIN_EXTERNAL_UNTRUSTED_CONTENT` / `END_EXTERNAL_UNTRUSTED_CONTENT` markers with provenance (source kind, trust level, content hash), and common injection markers are neutralized. The boundary currently covers repository file contents, file lists, and the repo path. DOM evidence, tool output, and CLI output are typed as source kinds but are not yet routed through it. | `packages/dashboard-api/src/ingestion/boundary.ts`, [ADR 0004](decisions/0004-untrusted-repository-content.md) |
+| Untrusted content | Repository files and paths are untrusted. Before they reach an LLM prompt they are wrapped in `BEGIN_EXTERNAL_UNTRUSTED_CONTENT` / `END_EXTERNAL_UNTRUSTED_CONTENT` markers that carry a random per-block nonce, with provenance (source kind, trust level, content hash). A marker inside the content is neutralized, so the content cannot close its own block, and common injection markers are neutralized too. The installed runtime wraps tool output the same way (`BEGIN_UNTRUSTED_TOOL_OUTPUT nonce=…`). The boundary currently covers repository file contents, file lists, and the repo path. DOM evidence, tool output, and CLI output are typed as source kinds but are not yet routed through it. | `packages/dashboard-api/src/ingestion/boundary.ts`, [ADR 0004](decisions/0004-untrusted-repository-content.md) |
 | Secrets | Provider keys come from the environment or `.env.local` files, which are git-ignored in this repository. The installer writes a resolved key to `<repo>/.agentic-qa/.env.local` and the launcher loads it. The file is written with mode `0600`, and the installer adds `.agentic-qa/.gitignore` so it is never committed (the target's own `.gitignore` is not edited). CI runs a secret scan (gitleaks). | `local-package-installer.ts`, `.github/workflows/ci.yml` |
 | Tool use | Agents can only call tools allowed by their profile. Risk-level policy can deny or hold `write` and `destructive` tools. Generic capabilities fail closed. | `agent-runtime.ts`, [ADR 0003](decisions/0003-fail-closed-generic-capabilities.md) |
 | Network exposure | The launcher binds both the runtime API and the dashboard to `127.0.0.1`, so neither is reachable from other machines. The API also defaults to `127.0.0.1` when started directly (override with `HOST`). | `scripts/start-local-dashboard.generated.sh` (generated) |

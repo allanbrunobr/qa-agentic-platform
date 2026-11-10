@@ -130,6 +130,23 @@ function eventPayload(event: Phase2SessionEvent) {
   return (event.payload ?? event.data ?? {}) as Record<string, unknown>
 }
 
+/**
+ * Each step once, as the runtime's contract verdict counts it (summarizeStepOutcomes in
+ * contract-verdict.ts): the order of first starts, and each step's last outcome.
+ */
+export function summarizeStepOutcomes(events: Phase2SessionEvent[]) {
+  const observedStepOrder: string[] = []
+  const lastOutcomeByStep = new Map<string, 'complete' | 'failed'>()
+  for (const event of events) {
+    const stepId = String(eventPayload(event).stepId ?? '')
+    if (!stepId) continue
+    if (event.type === 'step_started' && !observedStepOrder.includes(stepId)) observedStepOrder.push(stepId)
+    if (event.type === 'step_completed') lastOutcomeByStep.set(stepId, 'complete')
+    if (event.type === 'step_failed') lastOutcomeByStep.set(stepId, 'failed')
+  }
+  return { observedStepOrder, lastOutcomeByStep }
+}
+
 function deriveObservedToolsByStep(events: Phase2SessionEvent[]): Record<string, string[]> {
   const toolsByStep = new Map<string, string[]>()
   let activeStepId: string | null = null
@@ -229,8 +246,17 @@ function ScreenshotModal({
   )
 }
 
-function summarizeConversationEvent(event: Phase2SessionEvent): { title: string; body: string } | null {
+export function summarizeConversationEvent(event: Phase2SessionEvent): { title: string; body: string } | null {
   const payload = eventPayload(event)
+
+  // A finding the runtime refused in the response that ended its step: the agent never saw the
+  // refusal, so this is the only place the finding shows up.
+  if (event.type === 'error' && payload.event === 'finding_refused_at_step_end') {
+    return {
+      title: `Finding not recorded: ${String(payload.title ?? 'untitled')}`,
+      body: JSON.stringify(payload, null, 2),
+    }
+  }
 
   if (event.type === 'tool_call') {
     return {
@@ -678,7 +704,7 @@ function WorkflowSpecPanel({
   )
 }
 
-function SpecVsRunReal({
+export function SpecVsRunReal({
   workflowContract,
   sessionDetail,
   events,
@@ -700,28 +726,11 @@ function SpecVsRunReal({
       ? workflowContract?.workflow_contract?.steps as Array<Record<string, unknown>>
       : []
 
-  const startedStepIds = new Set(
-    events
-      .filter((event) => event.type === 'step_started')
-      .map((event) => String(eventPayload(event).stepId ?? ''))
-      .filter(Boolean),
-  )
-  const completedStepIds = new Set(
-    events
-      .filter((event) => event.type === 'step_completed')
-      .map((event) => String(eventPayload(event).stepId ?? ''))
-      .filter(Boolean),
-  )
-  const failedStepIds = new Set(
-    events
-      .filter((event) => event.type === 'step_failed')
-      .map((event) => String(eventPayload(event).stepId ?? ''))
-      .filter(Boolean),
-  )
-  const observedStepOrder = events
-    .filter((event) => event.type === 'step_started')
-    .map((event) => String(eventPayload(event).stepId ?? ''))
-    .filter(Boolean)
+  // A retried step has one step_started per attempt. Like the contract verdict, the order keeps each
+  // step's first start and the status is its last outcome; the verdict's own order wins when present.
+  const stepOutcomes = summarizeStepOutcomes(events)
+  const startedStepIds = new Set(stepOutcomes.observedStepOrder)
+  const observedStepOrder = evaluation?.observedStepOrder ?? stepOutcomes.observedStepOrder
   const expectedStepOrder = contractSteps.map((step) => String(step.id ?? 'unknown_step'))
   const observedToolsByStep = deriveObservedToolsByStep(events)
 
@@ -742,9 +751,10 @@ function SpecVsRunReal({
     const observedIndex = observedStepOrder.indexOf(stepId)
     const expectedCapability = String(step.capabilityId ?? 'unknown')
     const observedTools = observedToolsByStep[stepId] ?? []
-    const status = failedStepIds.has(stepId)
+    const lastOutcome = stepOutcomes.lastOutcomeByStep.get(stepId)
+    const status = lastOutcome === 'failed'
       ? 'failed'
-      : completedStepIds.has(stepId)
+      : lastOutcome === 'complete'
         ? 'complete'
         : startedStepIds.has(stepId)
           ? 'running'

@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { removeFixtureOnExit } from './lib/temp-fixture.mjs'
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.resolve(scriptDir, '..')
@@ -39,6 +40,7 @@ function writePackage(fixtureName, packageJson) {
 function createFixtures() {
   fs.rmSync(fixtureRoot, { recursive: true, force: true })
   fs.mkdirSync(fixtureRoot, { recursive: true })
+  removeFixtureOnExit(fixtureRoot, 'verify-static-frontend-scanner')
 
   writePackage('vite-finance', {
     name: 'vite-finance-fixture',

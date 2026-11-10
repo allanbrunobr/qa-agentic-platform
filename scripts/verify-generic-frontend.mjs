@@ -5,6 +5,8 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { removeFixtureOnExit } from './lib/temp-fixture.mjs'
+import { isolatedProviderEnv } from './lib/provider-isolation.mjs'
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.resolve(scriptDir, '..')
@@ -20,17 +22,11 @@ const preferredNodeBin = process.env.AGENTIC_RELEASE_NODE_BIN
 const preferredNodePath = path.join(preferredNodeBin, 'node')
 const nodePath = fs.existsSync(preferredNodePath) ? preferredNodePath : process.execPath
 // The deterministic smoke never calls a model provider, but install-local only writes
-// .agentic-qa/.env.local when a provider key resolves. Use a placeholder when none is configured.
-const hasProviderKey = Boolean(
-  process.env.ANTHROPIC_API_KEY_OVERRIDE
-  || process.env.ANTHROPIC_API_KEY
-  || process.env.ANTHROPIC_API
-  || process.env.OPENAI_API_KEY
-  || fs.existsSync(path.join(repoRoot, '.env.local')),
-)
+// .agentic-qa/.env.local when a provider key resolves. Always use a placeholder: a developer key
+// must not be validated over the network or copied into the temp fixture (T-06).
 const verificationEnv = {
   ...process.env,
-  ...(hasProviderKey ? {} : { ANTHROPIC_API_KEY: 'sk-ant-verification-placeholder' }),
+  ...isolatedProviderEnv({ anthropicKey: 'sk-ant-verification-placeholder' }),
   PATH: fs.existsSync(preferredNodePath)
     ? `${preferredNodeBin}${path.delimiter}${process.env.PATH ?? ''}`
     : process.env.PATH,
@@ -102,6 +98,7 @@ function verifyInstalledDocs() {
 function createFixture() {
   fs.rmSync(fixtureRoot, { recursive: true, force: true })
   fs.mkdirSync(fixtureRoot, { recursive: true })
+  removeFixtureOnExit(fixtureRoot, 'verify-generic-frontend')
   writeFile('package.json', `${JSON.stringify({
     name: 'generic-storefront-fixture',
     private: true,
@@ -440,7 +437,10 @@ async function verifyRuntimeRun() {
     const health = JSON.parse(healthText)
     assert(health?.status === 'ok', `dashboard health payload is invalid: ${healthText}`)
 
-    const graphResponse = await fetch(`http://127.0.0.1:${apiPort}/api/p2/code-graph`)
+    const unauthenticated = await fetch(`http://127.0.0.1:${apiPort}/api/p2/code-graph`)
+    assert(unauthenticated.status === 401, `runtime API answered ${unauthenticated.status} without the local token`)
+
+    const graphResponse = await fetch(`http://127.0.0.1:${apiPort}/api/p2/code-graph`, { headers: runtimeAuthHeaders() })
     const graphText = await graphResponse.text()
     assert(graphResponse.status === 200, `code graph endpoint failed with status ${graphResponse.status}: ${graphText}`)
     const graphBody = JSON.parse(graphText)
@@ -458,7 +458,7 @@ async function verifyRuntimeRun() {
 
     const response = await fetch(`http://127.0.0.1:${apiPort}/api/p2/runs`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...runtimeAuthHeaders() },
       body: JSON.stringify({ scenario_id: 'place_order' }),
     })
     const responseText = await response.text()
@@ -479,10 +479,16 @@ async function verifyRuntimeRun() {
   }
 }
 
+/** The launcher creates the local API token in .agentic-qa/data/; every request but /health needs it. */
+function runtimeAuthHeaders() {
+  const tokenPath = path.join(fixtureRoot, '.agentic-qa', 'data', 'runtime-api.token')
+  return { 'x-agentic-token': fs.readFileSync(tokenPath, 'utf8').trim() }
+}
+
 async function pollSession(sessionId) {
   const deadline = Date.now() + 90_000
   while (Date.now() < deadline) {
-    const response = await fetch(`http://127.0.0.1:${apiPort}/api/p2/sessions/${sessionId}`)
+    const response = await fetch(`http://127.0.0.1:${apiPort}/api/p2/sessions/${sessionId}`, { headers: runtimeAuthHeaders() })
     if (response.ok) {
       const session = await response.json()
       if (session.status === 'complete' || session.status === 'failed') return session

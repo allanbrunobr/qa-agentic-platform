@@ -1,3 +1,4 @@
+import { API_BASE, wsBase } from '@/lib/api-base'
 import { useState, useEffect, useRef, useCallback, type ReactNode } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ChevronDown, ChevronUp, Clock, AlertTriangle, Radio, Link2 } from 'lucide-react'
@@ -56,8 +57,6 @@ interface RunDetailPayload extends Omit<ApiRunExtended, 'artifacts'> {
   artifacts?: Record<string, unknown> | string | null
 }
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001'
-const WS_BASE = API_BASE.replace(/^http/, 'ws')
 
 interface RunsProps {
   activeRunId?: number | null
@@ -176,8 +175,8 @@ export function Runs({ activeRunId }: RunsProps) {
     }
     const qs = new URLSearchParams(params).toString()
     const url = qs
-      ? `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/runs?${qs}`
-      : `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/runs`
+      ? `${API_BASE}/api/runs?${qs}`
+      : `${API_BASE}/api/runs`
 
     fetch(url)
       .then(r => r.json())
@@ -212,7 +211,7 @@ export function Runs({ activeRunId }: RunsProps) {
   useEffect(() => {
     if (!activeRunId) return
 
-    const ws = new WebSocket(`${WS_BASE}/ws/runs/${activeRunId}`)
+    const ws = new WebSocket(`${wsBase()}/ws/runs/${activeRunId}`)
     wsRef.current = ws
 
     ws.onmessage = (evt) => {

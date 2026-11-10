@@ -1,8 +1,8 @@
+import { API_BASE } from '@/lib/api-base'
 import { useState, useEffect, useCallback } from 'react'
 import { Activity, Database, Play, AlertCircle } from 'lucide-react'
 import { formatRelativeTime } from '@/lib/utils'
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001'
 
 interface StatusData {
   api: 'up' | 'down'
@@ -44,7 +44,7 @@ function ActiveRunAge({ startedAt }: { startedAt: string }) {
   return <span>{formatRelativeTime(startedAt)}</span>
 }
 
-export function DashboardHealthStrip({}: DashboardHealthStripProps) {
+export function DashboardHealthStrip(_props: DashboardHealthStripProps) {
   const [status, setStatus] = useState<StatusData | null>(null)
   const [apiDown, setApiDown] = useState(false)
 

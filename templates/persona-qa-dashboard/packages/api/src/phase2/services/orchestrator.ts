@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { AgentStepOutput } from '../types/agent-types.js';
-import type { ScenarioContract, RunResult, OrchestratorDecision, DecisionType, StepExecutionStatus } from '../types/scenario-types.js';
+import type { ScenarioContract, RunResult, OrchestratorDecision, StepExecutionStatus } from '../types/scenario-types.js';
 import type { AgentRuntime } from './agent-runtime.js';
 import { AdaptiveDecisionEngine } from './adaptive-decision-engine.js';
 import { resolvePhase2ArtifactPath, type SessionService } from './session-service.js';

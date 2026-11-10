@@ -6,8 +6,6 @@ import { AgentRuntime } from '../services/agent-runtime.js'
 import { ToolRegistry } from '../services/tool-registry.js'
 import { SessionService } from '../services/session-service.js'
 
-const echoHandler: ToolHandler = async (input) => ({ ok: true, output: input })
-
 function makeMetadata(name: string, riskLevel: 'read' | 'write' | 'destructive' = 'read'): ToolMetadata {
   return { name, description: `Tool ${name}`, requiresBrowser: false, tags: [], riskLevel }
 }
@@ -53,39 +51,50 @@ describe('Story 1.3: Enforce Risk-Aware Tool Policy', () => {
   describe('AgentRuntime risk-aware isToolAllowed', () => {
     let registry: ToolRegistry
     let sessionService: SessionService
+    let executed: string[]
+
+    // T-01: the handlers record every real execution, so a test can tell a runtime that blocks a
+    // tool from one that runs it and still reports the step as completed.
+    const spyHandler = (name: string): ToolHandler => async (input) => {
+      executed.push(name)
+      return { ok: true, output: input }
+    }
 
     beforeEach(() => {
       registry = new ToolRegistry()
       sessionService = new SessionService(':memory:')
+      executed = []
 
-      registry.register('readData', echoHandler, makeMetadata('readData', 'read'))
-      registry.register('writeData', echoHandler, makeMetadata('writeData', 'write'))
-      registry.register('deleteAll', echoHandler, makeMetadata('deleteAll', 'destructive'))
+      registry.register('readData', spyHandler('readData'), makeMetadata('readData', 'read'))
+      registry.register('writeData', spyHandler('writeData'), makeMetadata('writeData', 'write'))
+      registry.register('deleteAll', spyHandler('deleteAll'), makeMetadata('deleteAll', 'destructive'))
     })
 
-    it('allows read tools and denies destructive for same profile', async () => {
-      const session = sessionService.createSession('test-scenario')
-
-      const toolCallSequence = [
-        { name: 'readData', expectAllowed: true },
-        { name: 'deleteAll', expectAllowed: false },
-      ]
-
+    /** A model that asks for the given tools one per turn, then ends; it records what it was offered. */
+    function scriptedProvider(toolNames: string[], offered: string[][] = []): ModelProvider {
       let callIndex = 0
-      const provider: ModelProvider = {
-        async chat(): Promise<ModelResponse> {
-          if (callIndex >= toolCallSequence.length) {
-            return { toolCalls: [], stopReason: 'end_turn' }
-          }
-          const tc = toolCallSequence[callIndex++]
-          return {
-            toolCalls: [{ id: `tc-${tc.name}`, name: tc.name, input: {} }],
-            stopReason: 'tool_use',
-          }
+      return {
+        async chat(_messages, tools): Promise<ModelResponse> {
+          offered.push(tools.map((tool) => tool.name))
+          const name = toolNames[callIndex++]
+          if (!name) return { toolCalls: [], stopReason: 'end_turn' }
+          return { toolCalls: [{ id: `tc-${name}-${callIndex}`, name, input: {} }], stopReason: 'tool_use' }
         },
       }
+    }
 
-      const runtime = new AgentRuntime(provider, registry, sessionService)
+    function toolErrors(sessionId: string, toolName: string): Array<string | undefined> {
+      return (sessionService.getSession(sessionId)?.events ?? [])
+        .filter((event) => event.type === 'tool_result')
+        .map((event) => (event.payload ?? event.data) as { toolName?: string; ok?: boolean; error?: { code?: string } })
+        .filter((payload) => payload.toolName === toolName && payload.ok === false)
+        .map((payload) => payload.error?.code)
+    }
+
+    it('runs a read tool and refuses a destructive one the model asks for anyway', async () => {
+      const session = sessionService.createSession('test-scenario')
+      const offered: string[][] = []
+      const runtime = new AgentRuntime(scriptedProvider(['readData', 'deleteAll'], offered), registry, sessionService)
       const profile = makeProfile({
         riskPolicy: {
           allowedRiskLevels: ['read'],
@@ -94,41 +103,38 @@ describe('Story 1.3: Enforce Risk-Aware Tool Policy', () => {
         },
       })
 
-      const result = await runtime.executeStep(profile, {
+      await runtime.executeStep(profile, {
         sessionId: session.id,
         messages: [{ role: 'user', content: 'test' }],
       })
 
-      // readData should have been offered as a tool (it's in the filtered list)
-      // deleteAll should NOT have been offered
-      expect(result.status).toBe('completed')
+      expect(executed).toEqual(['readData'])
+      expect(toolErrors(session.id, 'deleteAll')).toEqual(['tool_not_allowed'])
+      expect(offered[0]).toContain('readData')
+      expect(offered[0]).not.toContain('deleteAll')
     })
 
-    it('blocks tools that require approval (no approval mechanism yet)', async () => {
+    it('refuses a write tool that requires approval (no approval mechanism yet)', async () => {
       const session = sessionService.createSession('test-scenario')
-
-      const provider: ModelProvider = {
-        async chat(): Promise<ModelResponse> {
-          return { toolCalls: [], stopReason: 'end_turn' }
-        },
-      }
-
-      const runtime = new AgentRuntime(provider, registry, sessionService)
+      const offered: string[][] = []
+      const runtime = new AgentRuntime(scriptedProvider(['writeData'], offered), registry, sessionService)
       const profile = makeProfile({
         riskPolicy: {
-          allowedRiskLevels: ['read'],
+          // write is allowed, but approval is required and there is no way to grant it yet.
+          allowedRiskLevels: ['read', 'write'],
           requireApprovalFor: ['write'],
           denyRiskLevels: ['destructive'],
         },
       })
 
-      const result = await runtime.executeStep(profile, {
+      await runtime.executeStep(profile, {
         sessionId: session.id,
         messages: [{ role: 'user', content: 'test' }],
       })
 
-      // Should complete successfully — write tools blocked from being offered
-      expect(result.status).toBe('completed')
+      expect(executed).toEqual([])
+      expect(toolErrors(session.id, 'writeData')).toEqual(['tool_not_allowed'])
+      expect(offered[0]).not.toContain('writeData')
     })
 
     it('works without riskPolicy (backward compatible)', async () => {

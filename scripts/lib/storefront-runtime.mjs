@@ -10,12 +10,24 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { isolatedProviderEnv } from './provider-isolation.mjs'
 
 export const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const exampleDir = path.join(repoRoot, 'examples/storefront')
 const tsxLoader = path.join(repoRoot, 'node_modules/tsx/dist/loader.mjs')
 const LAUNCH_TIMEOUT_MS = Number(process.env.E2E_LAUNCH_TIMEOUT_MS ?? 15 * 60_000)
 const RUN_TIMEOUT_MS = Number(process.env.E2E_RUN_TIMEOUT_MS ?? 5 * 60_000)
+
+const GENERATED_DIRS = new Set(['.agentic-qa', 'node_modules', 'dist'])
+
+/**
+ * Copy filter for a fixture: leaves out generated directories at any depth, the top level included.
+ * A README quick start leaves examples/storefront/.agentic-qa behind, and its .env.local key would win
+ * over the empty provider override (the target's own key is kept on reinstall).
+ */
+export function fixtureCopyFilter(rootDir) {
+  return (source) => !path.relative(rootDir, source).split(/[\\/]/).some((segment) => GENERATED_DIRS.has(segment))
+}
 
 export function createLogger(tag) {
   return (message) => console.log(`[${tag}] ${message}`)
@@ -97,7 +109,7 @@ export async function startStorefrontRuntime({ log, keepDir = false }) {
     const result = spawnSync(process.execPath, ['--import', tsxLoader, 'packages/dashboard-api/src/cli.ts', command, targetDir], {
       cwd: repoRoot,
       encoding: 'utf8',
-      env: { ...process.env, ANTHROPIC_API_KEY: '', OPENAI_API_KEY: '' },
+      env: { ...process.env, ...isolatedProviderEnv() },
     })
     if (result.status !== 0) {
       throw new Error(`${command} failed (exit ${result.status}):\n${result.stdout}\n${result.stderr}`)
@@ -107,7 +119,7 @@ export async function startStorefrontRuntime({ log, keepDir = false }) {
   try {
     fs.cpSync(exampleDir, targetDir, {
       recursive: true,
-      filter: (source) => !/[\\/](\.agentic-qa|node_modules|dist)([\\/]|$)/.test(path.relative(exampleDir, source)),
+      filter: fixtureCopyFilter(exampleDir),
     })
     log(`working copy: ${targetDir}`)
     runCli('install-local')
@@ -158,17 +170,45 @@ export async function startStorefrontRuntime({ log, keepDir = false }) {
     await waitFor('dashboard web', 120_000, async () => (await fetch(`${webUrl}/`)).ok)
     log('runtime API and dashboard are up')
 
-    async function api(route, init) {
+    // The runtime API requires the local token (created by the launcher in .agentic-qa/data/).
+    const tokenPath = path.join(targetDir, '.agentic-qa', 'data', 'runtime-api.token')
+    const token = fs.readFileSync(tokenPath, 'utf8').trim()
+
+    async function api(route, init, { authenticated = true } = {}) {
       const response = await fetch(`${apiUrl}${route}`, {
         ...init,
-        headers: { 'content-type': 'application/json', ...(init?.headers ?? {}) },
+        headers: {
+          'content-type': 'application/json',
+          ...(authenticated ? { 'x-agentic-token': token } : {}),
+          ...(init?.headers ?? {}),
+        },
       })
       const body = await response.json().catch(() => null)
       return { status: response.status, body }
     }
 
-    async function startScenario(scenarioId) {
-      const started = await api('/api/p2/runs', { method: 'POST', body: JSON.stringify({ scenario_id: scenarioId }) })
+    /** Calls the API the way the dashboard does: same origin, through the Vite proxy, no token. */
+    async function viaDashboard(route) {
+      const response = await fetch(`${webUrl}${route}`)
+      const body = await response.json().catch(() => null)
+      return { status: response.status, body }
+    }
+
+    /** Opens a WebSocket and reports whether the upgrade succeeded. */
+    function websocketOpens(url) {
+      return new Promise((resolve) => {
+        const socket = new WebSocket(url)
+        const timer = setTimeout(() => { socket.close(); resolve(false) }, 10_000)
+        socket.addEventListener('open', () => { clearTimeout(timer); socket.close(); resolve(true) })
+        socket.addEventListener('error', () => { clearTimeout(timer); resolve(false) })
+      })
+    }
+
+    async function startScenario(scenarioId, executionContext) {
+      const body = executionContext
+        ? { scenario_id: scenarioId, execution_context: executionContext }
+        : { scenario_id: scenarioId }
+      const started = await api('/api/p2/runs', { method: 'POST', body: JSON.stringify(body) })
       if (started.status !== 202 || !started.body?.session_id) {
         throw new Error(`POST /api/p2/runs returned ${started.status}: ${JSON.stringify(started.body)}`)
       }
@@ -190,18 +230,40 @@ export async function startStorefrontRuntime({ log, keepDir = false }) {
 
     /** Removes the success feedback from the app so place_order must fail. */
     function breakApp() {
-      const indexPath = path.join(targetDir, 'index.html')
-      const original = fs.readFileSync(indexPath, 'utf8')
-      const broken = original.replace("feedback.textContent = 'Order submitted successfully'", "feedback.textContent = ''")
-      if (broken === original) throw new Error('could not inject the regression into index.html (success message not found)')
-      fs.writeFileSync(indexPath, broken)
+      breakIndexHtml(targetDir)
     }
 
-    return { appUrl, apiUrl, webUrl, targetDir, api, startScenario, waitForSession, listScenarioIds, breakApp, stop }
+    /**
+     * Serves a second, broken copy of the app on its own port and returns its URL. The launcher's
+     * PLAYWRIGHT_BASE_URL keeps pointing at the healthy app, so a run aimed at this URL only fails
+     * if the runtime really tests the run's target.
+     */
+    async function serveBrokenCopy() {
+      const brokenDir = path.join(workDir, 'storefront-broken')
+      fs.cpSync(targetDir, brokenDir, {
+        recursive: true,
+        filter: fixtureCopyFilter(targetDir),
+      })
+      breakIndexHtml(brokenDir)
+      const brokenPort = await freePort()
+      const brokenServer = await serveStatic(brokenDir, brokenPort)
+      cleanups.push(() => new Promise((resolve) => brokenServer.close(() => resolve())))
+      return `http://127.0.0.1:${brokenPort}`
+    }
+
+    return { appUrl, apiUrl, webUrl, targetDir, tokenPath, api, viaDashboard, websocketOpens, startScenario, waitForSession, listScenarioIds, breakApp, serveBrokenCopy, stop }
   } catch (error) {
     await stop()
     throw error
   }
+}
+
+function breakIndexHtml(dir) {
+  const indexPath = path.join(dir, 'index.html')
+  const original = fs.readFileSync(indexPath, 'utf8')
+  const broken = original.replace("feedback.textContent = 'Order submitted successfully'", "feedback.textContent = ''")
+  if (broken === original) throw new Error('could not inject the regression into index.html (success message not found)')
+  fs.writeFileSync(indexPath, broken)
 }
 
 export function describeSession(session) {

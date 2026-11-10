@@ -1,5 +1,4 @@
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001'
-const WS_BASE = API_BASE.replace(/^http/, 'ws')
+import { API_BASE, wsBase } from '@/lib/api-base'
 
 async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {
@@ -994,7 +993,7 @@ export const api = {
   getPhase2SessionFindings: (id: string) => fetchJSON<Phase2SessionFinding[]>(`${API_BASE}/api/p2/sessions/${id}/findings`),
   getPhase2SessionArtifacts: (id: string) => fetchJSON<Phase2SessionArtifact[]>(`${API_BASE}/api/p2/sessions/${id}/artifacts`),
   getPhase2ArtifactContentUrl: (artifactId: string) => `${API_BASE}/api/p2/artifacts/${artifactId}/content`,
-  getPhase2SessionWsUrl: (sessionId: string) => `${WS_BASE}/ws/p2/sessions/${sessionId}`,
+  getPhase2SessionWsUrl: (sessionId: string) => `${wsBase()}/ws/p2/sessions/${sessionId}`,
   getPhase2Maturity: () => fetchJSON<Phase2MaturityStatus>(`${API_BASE}/api/p2/maturity`),
   getPhase2DomainDiscovery: () =>
     fetchJSON<Phase2DomainDiscoveryResponse>(`${API_BASE}/api/p2/domain-discovery`),

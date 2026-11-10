@@ -45,8 +45,8 @@ export const SessionEventSchema = z.object({
   type: SessionEventTypeSchema,
   agentRole: z.string().optional(),
   timestamp: z.string(),
-  payload: z.record(z.unknown()).optional(),
-  data: z.record(z.unknown()).optional(),
+  payload: z.record(z.string(), z.unknown()).optional(),
+  data: z.record(z.string(), z.unknown()).optional(),
 })
 export type SessionEvent = z.infer<typeof SessionEventSchema>
 
@@ -58,7 +58,7 @@ export const SessionArtifactSchema = z.object({
   description: z.string(),
   filePath: z.string().optional(),
   content: z.string().optional(),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
   timestamp: z.string(),
 })
 export type SessionArtifact = z.infer<typeof SessionArtifactSchema>
@@ -95,7 +95,7 @@ export const SessionSchema = z.object({
   startedAt: z.string(),
   completedAt: z.string().optional(),
   events: z.array(SessionEventSchema).default([]),
-  artifacts: z.record(z.unknown()).default({}),
+  artifacts: z.record(z.string(), z.unknown()).default({}),
   findings: z.array(SessionFindingSchema).default([]),
   checkpoint: SessionCheckpointSchema.default({ lastCompletedStep: -1, cursor: 0 }),
 })

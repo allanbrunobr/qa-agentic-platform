@@ -3,10 +3,12 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { dump } from 'js-yaml'
 import { listScenarios, loadScenario } from '../scenarios/index.js'
-import { buildScenarioQualityGateForSessions } from '../services/scenario-quality-gates.js'
+import { buildScenarioQualityGateForScenario } from '../services/scenario-quality-gates.js'
 import { createPhase2Runtime } from '../services/runtime-bootstrap.js'
 import {
   parseExecutionContext,
+  validateExecutionContext,
+  resolveExecutionApiBaseUrl,
   resolveExecutionBaseUrl,
   summarizeExecutionContext,
 } from '../services/execution-context.js'
@@ -18,18 +20,23 @@ import { getSessionService } from './sessions.js'
 import { loadRuntimeSettings } from '../../services/runtime-settings.js'
 import { validateProviderCredentials } from '../providers/provider-factory.js'
 
+const ResetQualityGateBody = z.object({
+  reason: z.string().trim().min(10).max(500),
+})
+
 const StartAgenticRunBody = z.object({
   scenario_id: z.string(),
-  seed_artifacts: z.record(z.string()).optional(),
+  seed_artifacts: z.record(z.string(), z.string()).optional(),
   execution_context: z.unknown().optional(),
 })
 
 export async function phase2RunnerRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/p2/scenarios', async (_request, reply) => {
-    const sessions = getSessionService().getAllSessions()
+    const sessionService = getSessionService()
+    const sessions = sessionService.getAllSessions()
     const scenarios = listScenarios().map((scenarioId) => {
       const scenario = loadScenario(scenarioId)
-      const gate = buildScenarioQualityGateForSessions(scenario.id, sessions)
+      const gate = buildScenarioQualityGateForScenario(sessionService, scenario.id, sessions)
       return {
         id: scenario.id,
         name: scenario.name,
@@ -74,12 +81,47 @@ export async function phase2RunnerRoutes(app: FastifyInstance): Promise<void> {
     })
   })
 
+  // Operator exit from a quality gate (B-01). A restricted scenario rejects new runs, and without new
+  // runs its recent-session window never changes, so it would stay restricted forever. A reset with a
+  // reason makes the gate ignore sessions started before it; the scenario then requalifies on new
+  // runs. Resets are stored with their reason and the status they cleared, and are never deleted.
+  app.post<{ Params: { scenarioId: string } }>('/api/p2/scenarios/:scenarioId/quality-gate/reset', async (request, reply) => {
+    const parsed = ResetQualityGateBody.safeParse(request.body ?? {})
+    if (!parsed.success) {
+      return reply.status(400).send({ error: 'invalid_body', details: parsed.error.flatten() })
+    }
+    const { scenarioId } = request.params
+    if (!listScenarios().includes(scenarioId)) {
+      return reply.status(404).send({ error: 'scenario_not_found', scenario_id: scenarioId })
+    }
+
+    const sessionService = getSessionService()
+    const previousGate = buildScenarioQualityGateForScenario(sessionService, scenarioId)
+    const reset = sessionService.recordQualityGateReset(scenarioId, parsed.data.reason, previousGate.status)
+    return reply.send({
+      scenario_id: scenarioId,
+      reset,
+      previous_quality_gate: previousGate,
+      quality_gate: buildScenarioQualityGateForScenario(sessionService, scenarioId),
+    })
+  })
+
   app.post('/api/p2/runs', async (request, reply) => {
     const parsed = StartAgenticRunBody.safeParse(request.body ?? {})
     if (!parsed.success) {
       return reply.status(400).send({
         error: 'invalid_body',
         details: parsed.error.flatten(),
+      })
+    }
+
+    // An invalid execution_context (for example a file:// target) is an error, not "no context":
+    // ignoring it would silently test the environment's target instead (S-07).
+    const contextValidation = validateExecutionContext(parsed.data.execution_context)
+    if (!contextValidation.ok) {
+      return reply.status(400).send({
+        error: 'invalid_execution_context',
+        details: contextValidation.error,
       })
     }
 
@@ -100,7 +142,7 @@ export async function phase2RunnerRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const scenario = loadScenario(parsed.data.scenario_id)
-    const gate = buildScenarioQualityGateForSessions(scenario.id, getSessionService().getAllSessions())
+    const gate = buildScenarioQualityGateForScenario(getSessionService(), scenario.id)
     if (gate.status === 'restricted') {
       return reply.status(409).send({
         error: 'scenario_restricted_by_quality_gate',
@@ -131,11 +173,20 @@ export async function phase2RunnerRoutes(app: FastifyInstance): Promise<void> {
       let page: { close(): Promise<void> } | null = null
 
       try {
+        // executionTarget is what the tools resolve routes and repository paths against. It is set
+        // after the seed artifacts so a client-supplied artifact cannot replace it, and the agent
+        // runtime keeps it out of the model prompt.
         if (useGeneratedNonFrontendRuntime) {
+          const targetRepoPath = executionContext?.targetRepoPath ?? resolveGeneratedTargetRepoPath()
+          // Only an API base URL the run asked for (targetBaseUrl or a backend preview): without one,
+          // probes keep using GENERIC_API_BASE_URL. Frontend previews and PLAYWRIGHT_BASE_URL are not
+          // API bases.
+          const requestedBaseUrl = resolveExecutionApiBaseUrl(executionContext)
           await runtime.orchestrator.executeRunInSession(session.id, scenario, {
             ...seedArtifacts,
-            targetRepoPath: executionContext?.targetRepoPath ?? resolveGeneratedTargetRepoPath(),
+            targetRepoPath,
             runtimeMode: 'generated_non_browser',
+            executionTarget: { targetRepoPath, ...(requestedBaseUrl ? { baseUrl: requestedBaseUrl } : {}) },
           })
           return
         }
@@ -147,6 +198,7 @@ export async function phase2RunnerRoutes(app: FastifyInstance): Promise<void> {
         await runtime.orchestrator.executeRunInSession(session.id, scenario, {
           ...seedArtifacts,
           page,
+          executionTarget: { baseUrl },
         })
       } catch (error) {
         runtime.sessionService.updateStatus(session.id, 'failed')

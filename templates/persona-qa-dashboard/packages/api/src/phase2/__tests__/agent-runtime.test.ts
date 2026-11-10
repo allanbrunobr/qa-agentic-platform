@@ -208,6 +208,17 @@ describe('AgentRuntime', () => {
   })
 
   describe('executeStep — L5 runtime learning overlays', () => {
+    // A scenario step needs its capability registered as a tool; without it the step now fails
+    // before calling the model (S-05), and these tests are about the prompt the model receives.
+    beforeEach(() => {
+      registry.register('registerCustomer', async () => ({ ok: true, output: { customerId: 'cust-1' } }), {
+        name: 'registerCustomer',
+        description: 'Register a customer',
+        requiresBrowser: false,
+        tags: [],
+      })
+    })
+
     it('consults retained L5 learning signals scoped to scenario, step, and agent', async () => {
       const session = sessionService.createSession('first_order')
       const signal = sessionService.recordL5LearningSignal({

@@ -1,10 +1,10 @@
+import { API_BASE } from '@/lib/api-base'
 import { useState, useEffect } from 'react'
 import { CheckCircle, XCircle, AlertTriangle, Clock, Play, Database, RefreshCw } from 'lucide-react'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { formatRelativeTime } from '@/lib/utils'
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001'
 
 interface ScenarioHealth {
   scenario_id: string

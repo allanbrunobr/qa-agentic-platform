@@ -25,7 +25,40 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+/** Hard ceiling on retries a hook may request, so a buggy hook cannot loop forever. */
+const MAX_RETRIES_CEILING = 10
+const DEFAULT_MAX_RETRIES = 1
+
+/**
+ * Runs an execution. If any hook throws, the session is closed as failed (with a run_failed event)
+ * before the error reaches the caller: it never stays "running" (B-07).
+ */
 export async function runAdapterExecutionEngine(input: AdapterExecutionEngineInput) {
+  try {
+    await runEngine(input)
+  } catch (error) {
+    const failedAt = new Date().toISOString()
+    const message = error instanceof Error ? error.message : String(error)
+    try {
+      const current = await input.sessionStore.getSession(input.sessionId)
+      if (current && current.status !== 'complete' && current.status !== 'failed') {
+        await input.sessionStore.updateSession(input.sessionId, { status: 'failed', completedAt: failedAt })
+        await input.sessionStore.appendEvent({
+          id: randomUUID(),
+          sessionId: input.sessionId,
+          type: 'run_failed',
+          timestamp: failedAt,
+          data: { executionId: input.execution.executionId, errorMessage: message, reason: 'execution_error' },
+        } satisfies SessionEvent)
+      }
+    } catch {
+      // The store itself failed: nothing more can be recorded; the original error still propagates.
+    }
+    throw error
+  }
+}
+
+async function runEngine(input: AdapterExecutionEngineInput) {
   const { execution, hooks, model, sessionId, sessionStore } = input
   const stepDelayMs = input.stepDelayMs ?? 100
   const scenario = model.scenarios.find((item) => item.id === execution.scenarioId)
@@ -71,38 +104,46 @@ export async function runAdapterExecutionEngine(input: AdapterExecutionEngineInp
     const stepId = execution.steps[index]
     const stepDefinition = scenario?.stepDefinitions?.find((item) => item.id === stepId)
     const stepInstructions = buildStepInstructionEnvelope(stepId, stepDefinition, producedArtifacts)
-    await sessionStore.appendEvent({
-      id: randomUUID(),
-      sessionId,
-      type: 'step_started',
-      timestamp: new Date().toISOString(),
-      agentRole: stepDefinition?.roleId,
-      data: {
-        stepId,
-        index,
-        capabilityId: stepDefinition?.capabilityId,
-        instructions: stepInstructions,
-      },
-    } satisfies SessionEvent)
     await input.onStepStarted?.(stepId, index)
     await sleep(stepDelayMs)
 
     let attempt = 0
     let result
     let failureMessage: string | null = null
-    const maxRetries = 1
 
-    while (attempt <= maxRetries) {
+    // B-08: the loop used to stop at a hard-coded 1 retry while the give-up check below used the step's
+    // own maxRetries, so a step still failing fell out of the loop and was recorded as completed. The
+    // loop now ends only by success, cancellation, or the give-up check.
+    for (;;) {
+      // Each attempt opens the step, as the runtime's orchestrator does. The contract verdict closes a
+      // step at step_failed and attributes tool_call events only to an open step, so with a single
+      // step_started the capabilities a retry reported were never compared with the contract.
+      await sessionStore.appendEvent({
+        id: randomUUID(),
+        sessionId,
+        type: 'step_started',
+        timestamp: new Date().toISOString(),
+        agentRole: stepDefinition?.roleId,
+        data: {
+          stepId,
+          index,
+          attempt,
+          capabilityId: stepDefinition?.capabilityId,
+          instructions: stepInstructions,
+        },
+      } satisfies SessionEvent)
       await sessionStore.appendEvent({
         id: randomUUID(),
         sessionId,
         type: 'tool_call',
         timestamp: new Date().toISOString(),
         agentRole: stepDefinition?.roleId,
+        // B-11: this is the dispatch. It records the DECLARED capability, not a tool used: recording
+        // the declaration as the tool made the contract's capability check compare it with itself.
         data: {
           stepId,
           index,
-          toolName: stepDefinition?.capabilityId ?? stepId,
+          declaredCapability: stepDefinition?.capabilityId ?? stepId,
           attempt,
         },
       } satisfies SessionEvent)
@@ -117,6 +158,18 @@ export async function runAdapterExecutionEngine(input: AdapterExecutionEngineInp
         stepDefinition,
         producedArtifacts,
       })
+
+      // What the adapter reports it actually executed is what the contract compares.
+      for (const capability of result.executedCapabilities ?? []) {
+        await sessionStore.appendEvent({
+          id: randomUUID(),
+          sessionId,
+          type: 'tool_call',
+          timestamp: new Date().toISOString(),
+          agentRole: stepDefinition?.roleId,
+          data: { stepId, index, toolName: capability, attempt, source: 'adapter_report' },
+        } satisfies SessionEvent)
+      }
 
       if ((result.status ?? 'completed') === 'completed') break
 
@@ -156,7 +209,7 @@ export async function runAdapterExecutionEngine(input: AdapterExecutionEngineInp
         return
       }
 
-      const allowedRetries = result.maxRetries ?? maxRetries
+      const allowedRetries = Math.min(result.maxRetries ?? DEFAULT_MAX_RETRIES, MAX_RETRIES_CEILING)
       if (!(result.retryable ?? false) || attempt >= allowedRetries) {
         const failedAt = new Date().toISOString()
         await sessionStore.updateSession(sessionId, { status: 'failed', completedAt: failedAt })

@@ -960,7 +960,7 @@ export function Overview() {
               </p>
             </div>
             <div className="text-xs text-[var(--text-muted)]">
-              Last activity {formatRelativeTime(orderedSessions[0]!.startedAt)}
+              Last activity {orderedSessions[0] ? formatRelativeTime(orderedSessions[0].startedAt) : 'no activity yet'}
             </div>
           </div>
           <div className="h-52">

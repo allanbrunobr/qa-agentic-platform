@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import type { ToolHandler, ToolMetadata, ToolResult } from '../types/tool-types.js'
+import type { ToolContext, ToolHandler, ToolMetadata, ToolResult } from '../types/tool-types.js'
 import type { ToolRegistry } from '../services/tool-registry.js'
 import {
   getGeneratedRepositoryKind,
@@ -9,6 +9,14 @@ import {
   resolveGeneratedTargetRepoPath,
 } from '../services/generated-adapter-runtime.js'
 import { confineEndpointUrl, confinePackageBin } from './endpoint-confinement.js'
+
+type FrontendToolContext = Pick<ToolContext, 'page' | 'executionTarget' | 'signal'>
+
+/** The repository the run targets: execution_context.targetRepoPath first, then the launch default. */
+function targetRepoPathFor(context: ToolContext | undefined): string {
+  const requested = context?.executionTarget?.targetRepoPath
+  return requested ? path.resolve(requested) : resolveGeneratedTargetRepoPath()
+}
 
 interface PackageJson {
   name?: unknown
@@ -145,9 +153,9 @@ export function registerGeneratedAdapterTools(registry: ToolRegistry): void {
   registerGeneratedFrontendTools(registry)
 }
 
-const startApiServiceHandler: ToolHandler = async (): Promise<ToolResult> => {
-  const targetRepoPath = resolveGeneratedTargetRepoPath()
-  const baseUrl = resolveApiBaseUrl()
+const startApiServiceHandler: ToolHandler = async (_input, context): Promise<ToolResult> => {
+  const targetRepoPath = targetRepoPathFor(context)
+  const baseUrl = resolveApiBaseUrl(context)
   const runtimePlan = readGeneratedAdapterJson<RuntimePlan>('runtime/runtime-plan.generated.json')
 
   return ok({
@@ -167,14 +175,14 @@ const startApiServiceHandler: ToolHandler = async (): Promise<ToolResult> => {
   })
 }
 
-const callHealthEndpointHandler: ToolHandler = async (input: unknown): Promise<ToolResult> => {
+const callHealthEndpointHandler: ToolHandler = async (input: unknown, context): Promise<ToolResult> => {
   const endpointPath = normalizeEndpointPath(input, detectHealthEndpointPath())
-  return ok({ apiResponse: await callEndpoint(endpointPath) })
+  return ok({ apiResponse: await callEndpoint(endpointPath, context) })
 }
 
-const callPrimaryEndpointHandler: ToolHandler = async (input: unknown): Promise<ToolResult> => {
+const callPrimaryEndpointHandler: ToolHandler = async (input: unknown, context): Promise<ToolResult> => {
   const endpointPath = normalizeEndpointPath(input, detectPrimaryEndpointPath())
-  return ok({ apiResponse: await callEndpoint(endpointPath) })
+  return ok({ apiResponse: await callEndpoint(endpointPath, context) })
 }
 
 const verifyApiResponseHandler: ToolHandler = async (_input, context): Promise<ToolResult> => {
@@ -199,9 +207,19 @@ const verifyApiResponseHandler: ToolHandler = async (_input, context): Promise<T
   })
 }
 
-const runCliHelpHandler: ToolHandler = async (input: unknown): Promise<ToolResult> => {
-  const targetRepoPath = resolveGeneratedTargetRepoPath()
+const runCliHelpHandler: ToolHandler = async (input: unknown, context): Promise<ToolResult> => {
+  const targetRepoPath = targetRepoPathFor(context)
   const args = normalizeArgs(input)
+  if (!isAllowedCliArgs(args)) {
+    return {
+      ok: false,
+      error: {
+        code: 'cli_args_not_allowed',
+        message: 'runCliHelp accepts only help or version flags (--help, -h, --version, -v) and plain subcommand names, at most 4.',
+        retryable: false,
+      },
+    }
+  }
   const command = await resolveCliCommand(targetRepoPath, args)
   if (!command) {
     return ok({
@@ -252,8 +270,8 @@ const verifyCliOutputHandler: ToolHandler = async (_input, context): Promise<Too
   })
 }
 
-const inspectPackageExportsHandler: ToolHandler = async (): Promise<ToolResult> => {
-  const targetRepoPath = resolveGeneratedTargetRepoPath()
+const inspectPackageExportsHandler: ToolHandler = async (_input, context): Promise<ToolResult> => {
+  const targetRepoPath = targetRepoPathFor(context)
   const packageJson = await readPackageJson(targetRepoPath)
 
   return ok({
@@ -270,7 +288,7 @@ const inspectPackageExportsHandler: ToolHandler = async (): Promise<ToolResult> 
 }
 
 const verifyPublicApiDocsHandler: ToolHandler = async (_input, context): Promise<ToolResult> => {
-  const targetRepoPath = resolveGeneratedTargetRepoPath()
+  const targetRepoPath = targetRepoPathFor(context)
   const packageExports = asRecord(context.artifacts?.['packageExports'])
   const hasExports = packageExports?.['exports'] !== null && packageExports?.['exports'] !== undefined
   const hasTypes = packageExports?.['types'] !== null && packageExports?.['types'] !== undefined
@@ -292,8 +310,8 @@ const verifyPublicApiDocsHandler: ToolHandler = async (_input, context): Promise
   })
 }
 
-const inspectRepositoryStructureHandler: ToolHandler = async (): Promise<ToolResult> => {
-  const targetRepoPath = resolveGeneratedTargetRepoPath()
+const inspectRepositoryStructureHandler: ToolHandler = async (_input, context): Promise<ToolResult> => {
+  const targetRepoPath = targetRepoPathFor(context)
   const entries = await listTopLevelEntries(targetRepoPath)
 
   return ok({
@@ -307,8 +325,8 @@ const inspectRepositoryStructureHandler: ToolHandler = async (): Promise<ToolRes
   })
 }
 
-const identifyTestEntrypointsHandler: ToolHandler = async (): Promise<ToolResult> => {
-  const targetRepoPath = resolveGeneratedTargetRepoPath()
+const identifyTestEntrypointsHandler: ToolHandler = async (_input, context): Promise<ToolResult> => {
+  const targetRepoPath = targetRepoPathFor(context)
   const packageJson = await readPackageJson(targetRepoPath)
   const scripts = asStringRecord(packageJson?.scripts)
   const interestingScripts = Object.entries(scripts).filter(([name]) => (
@@ -348,14 +366,14 @@ function registerGeneratedFrontendTools(registry: ToolRegistry): void {
   ].filter((id): id is string => typeof id === 'string' && id.length > 0))
 
   for (const capabilityId of capabilityIds) {
-    const handler = frontendHandlerForCapability(capabilityId, generatedCapabilities)
-    if (!handler || registry.has(capabilityId)) continue
+    const selected = frontendHandlerForCapability(capabilityId, generatedCapabilities)
+    if (!selected || registry.has(capabilityId)) continue
 
-    registry.register(capabilityId, handler, metadata({
+    registry.register(capabilityId, selected.handler, metadata({
       name: capabilityId,
       description: `Execute generated browser capability ${capabilityId}`,
       requiresBrowser: true,
-      riskLevel: isReadOnlyFrontendCapability(capabilityId) ? 'read' : 'write',
+      riskLevel: selected.riskLevel,
       tags: ['generated-adapter', 'frontend', 'browser'],
     }))
   }
@@ -364,39 +382,41 @@ function registerGeneratedFrontendTools(registry: ToolRegistry): void {
 function frontendHandlerForCapability(
   capabilityId: string,
   generatedCapabilities: Array<{ id: string; routeHint?: string; purpose?: string; sourceHint?: string }>,
-): ToolHandler | null {
+): { handler: ToolHandler; riskLevel: 'read' | 'write' } | null {
+  // S-14: the risk belongs to the handler a capability gets. It used to come from words in the name,
+  // so "verifyCheckout" got the submit handler and riskLevel read.
   const capability = generatedCapabilities.find((item) => item.id === capabilityId)
   const normalizedId = capabilityId.toLowerCase()
   if (capabilityId === 'openPrimaryRoute' || normalizedId.includes('open') || normalizedId.includes('navigate')) {
-    return async (_input, context) => openPrimaryRouteHandler(capability, context)
+    return { riskLevel: 'read', handler: async (_input, context) => openPrimaryRouteHandler(capability, context) }
   }
   if (capabilityId === 'fillCustomerEmail' || normalizedId.includes('fill')) {
-    return async (input, context) => fillCustomerEmailHandler(input, capability, context)
+    return { riskLevel: 'write', handler: async (input, context) => fillCustomerEmailHandler(input, capability, context) }
   }
   if (capabilityId === 'addCartItem' || normalizedId.includes('add') || normalizedId.includes('cart')) {
-    return async (_input, context) => addCartItemHandler(capability, context)
+    return { riskLevel: 'write', handler: async (_input, context) => addCartItemHandler(capability, context) }
   }
   if (capabilityId === 'submitOrder' || normalizedId.includes('submit') || normalizedId.includes('checkout')) {
-    return async (_input, context) => submitOrderHandler(capability, context)
+    return { riskLevel: 'write', handler: async (_input, context) => submitOrderHandler(capability, context) }
   }
   if (capabilityId === 'captureScreenshot' || normalizedId.includes('screenshot')) {
-    return async (_input, context) => captureScreenshotHandler(capability, context)
+    return { riskLevel: 'read', handler: async (_input, context) => captureScreenshotHandler(capability, context) }
   }
   if (capabilityId === 'verifyPrimaryFeedback' || normalizedId.includes('verify') || normalizedId.includes('assert')) {
-    return async (_input, context) => verifyPrimaryFeedbackHandler(capability, context)
+    return { riskLevel: 'read', handler: async (_input, context) => verifyPrimaryFeedbackHandler(capability, context) }
   }
   if (capabilityId === 'interactWithPrimaryAction' || normalizedId.includes('click') || normalizedId.includes('interact')) {
-    return async (_input, context) => interactWithPrimaryActionHandler(capability, context)
+    return { riskLevel: 'write', handler: async (_input, context) => interactWithPrimaryActionHandler(capability, context) }
   }
   return null
 }
 
 const openPrimaryRouteHandler = async (
   capability: { id?: string; routeHint?: string } | undefined,
-  context: { page?: unknown },
+  context: FrontendToolContext,
 ): Promise<ToolResult> => {
-  const page = requirePage(context.page)
-  const route = normalizeRouteHint(capability?.routeHint)
+  const page = requirePage(context.page, context.signal)
+  const route = normalizeRouteHint(capability?.routeHint, context.executionTarget?.baseUrl)
   await page.goto?.(route, { waitUntil: 'domcontentloaded' })
 
   return ok({
@@ -418,10 +438,10 @@ const openPrimaryRouteHandler = async (
 const fillCustomerEmailHandler = async (
   input: unknown,
   capability: { id?: string; routeHint?: string; purpose?: string } | undefined,
-  context: { page?: unknown },
+  context: FrontendToolContext,
 ): Promise<ToolResult> => {
-  const page = requirePage(context.page)
-  await ensurePageReady(page, capability?.routeHint)
+  const page = requirePage(context.page, context.signal)
+  await ensurePageReady(page, capability?.routeHint, context)
   const inputRecord = asRecord(input)
   const fieldLabel = extractQuotedLabel(capability?.purpose)
   const wantsEmail = !capability || /e-?mail/i.test(`${capability.id ?? ''} ${fieldLabel ?? ''}`)
@@ -467,10 +487,10 @@ const fillCustomerEmailHandler = async (
 
 const addCartItemHandler = async (
   capability: { id?: string; routeHint?: string; purpose?: string; sourceHint?: string } | undefined,
-  context: { page?: unknown },
+  context: FrontendToolContext,
 ): Promise<ToolResult> => {
-  const page = requirePage(context.page)
-  await ensurePageReady(page, capability?.routeHint)
+  const page = requirePage(context.page, context.signal)
+  await ensurePageReady(page, capability?.routeHint, context)
   const clicked = await clickFirst(page, {
     exactLabel: extractQuotedLabel(capability?.purpose),
     patterns: [/add.*cart|add.*item|comprar|adicionar/i],
@@ -494,10 +514,10 @@ const addCartItemHandler = async (
 
 const submitOrderHandler = async (
   capability: { id?: string; routeHint?: string; purpose?: string; sourceHint?: string } | undefined,
-  context: { page?: unknown },
+  context: FrontendToolContext,
 ): Promise<ToolResult> => {
-  const page = requirePage(context.page)
-  await ensurePageReady(page, capability?.routeHint)
+  const page = requirePage(context.page, context.signal)
+  await ensurePageReady(page, capability?.routeHint, context)
   const clicked = await clickFirst(page, {
     exactLabel: extractQuotedLabel(capability?.purpose),
     patterns: [/submit.*order|checkout|place.*order|finalizar|confirmar|enviar|submit/i],
@@ -522,10 +542,10 @@ const submitOrderHandler = async (
 
 const interactWithPrimaryActionHandler = async (
   capability: { id?: string; routeHint?: string; purpose?: string; sourceHint?: string } | undefined,
-  context: { page?: unknown },
+  context: FrontendToolContext,
 ): Promise<ToolResult> => {
-  const page = requirePage(context.page)
-  await ensurePageReady(page, capability?.routeHint)
+  const page = requirePage(context.page, context.signal)
+  await ensurePageReady(page, capability?.routeHint, context)
   const clicked = await clickFirst(page, {
     exactLabel: extractQuotedLabel(capability?.purpose),
     patterns: [/continue|start|save|next|primary|submit|open|iniciar|salvar|avancar/i],
@@ -549,10 +569,10 @@ const interactWithPrimaryActionHandler = async (
 
 const verifyPrimaryFeedbackHandler = async (
   capability: { routeHint?: string } | undefined,
-  context: { page?: unknown },
+  context: FrontendToolContext,
 ): Promise<ToolResult> => {
-  const page = requirePage(context.page)
-  await ensurePageReady(page, capability?.routeHint)
+  const page = requirePage(context.page, context.signal)
+  await ensurePageReady(page, capability?.routeHint, context)
   const feedback = await waitForVisibleText(page, SUCCESS_FEEDBACK_SELECTORS, FEEDBACK_WAIT_MS)
 
   if (!feedback) {
@@ -583,10 +603,10 @@ const verifyPrimaryFeedbackHandler = async (
 
 const captureScreenshotHandler = async (
   capability: { routeHint?: string } | undefined,
-  context: { page?: unknown },
+  context: FrontendToolContext,
 ): Promise<ToolResult> => {
-  const page = requirePage(context.page)
-  await ensurePageReady(page, capability?.routeHint)
+  const page = requirePage(context.page, context.signal)
+  await ensurePageReady(page, capability?.routeHint, context)
   const screenshot = await page.screenshot?.({ fullPage: true })
   const byteLength = screenshot instanceof Uint8Array ? screenshot.byteLength : null
 
@@ -601,7 +621,10 @@ const captureScreenshotHandler = async (
 }
 
 function readGeneratedCapabilities(): Array<{ id: string; routeHint?: string; purpose?: string; sourceHint?: string }> {
-  const parsed = readGeneratedAdapterJson<CapabilityCatalog | GeneratedCapability[]>('capabilities/capabilities.generated.json')
+  const parsed = readGeneratedAdapterJson<CapabilityCatalog | GeneratedCapability[]>(
+    'capabilities/capabilities.generated.json',
+    'PERSONA_QA_CAPABILITIES_FILE',
+  )
   const rawCapabilities = Array.isArray(parsed) ? parsed : parsed?.capabilities
   if (!Array.isArray(rawCapabilities)) return []
 
@@ -635,34 +658,95 @@ function isBackendRouteHint(value: string): boolean {
   return /^\/?api(\/|$)/i.test(value)
 }
 
-function isReadOnlyFrontendCapability(capabilityId: string): boolean {
-  return /verify|assert|capture|screenshot|open|navigate/i.test(capabilityId)
-}
-
-function requirePage(value: unknown): PageLike {
+function requirePage(value: unknown, signal?: AbortSignal): PageLike {
   if (!isRecord(value)) {
     throw new Error('Generated frontend capability requires a Playwright page context.')
   }
-  return value as PageLike
+  if (!signal) return value as PageLike
+  // Every page and locator method checks the signal, so an already-ended step is refused on first use.
+  return guardAgainstAbort(value, signal) as PageLike
 }
 
-async function ensurePageReady(page: PageLike, routeHint: string | undefined): Promise<void> {
+class StepAbortedError extends Error {
+  readonly code = 'step_aborted'
+  constructor() {
+    super('The step this tool belonged to has already ended; the page was not touched.')
+    this.name = 'StepAbortedError'
+  }
+}
+
+function throwIfStepAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) throw new StepAbortedError()
+}
+
+/**
+ * B-06: wraps the page (and the locators it returns) so every method call first checks the step's
+ * signal. A tool still running after its step timed out cannot click, fill or navigate any more, even
+ * though the page object is shared with the retry that follows.
+ */
+function guardAgainstAbort<T extends object>(target: T, signal: AbortSignal): T {
+  return new Proxy(target, {
+    get(object, property, receiver) {
+      const value = Reflect.get(object, property, receiver)
+      if (typeof value !== 'function') return value
+      return (...args: unknown[]) => {
+        throwIfStepAborted(signal)
+        const result = (value as (...callArgs: unknown[]) => unknown).apply(object, args)
+        return result && typeof result === 'object' && !(result instanceof Promise) && typeof (result as { then?: unknown }).then !== 'function'
+          ? guardAgainstAbort(result as object, signal)
+          : result
+      }
+    },
+  })
+}
+
+async function ensurePageReady(page: PageLike, routeHint: string | undefined, context: FrontendToolContext): Promise<void> {
   const currentUrl = safeCurrentUrl(page)
   if (currentUrl && currentUrl !== 'about:blank') return
-  await page.goto?.(normalizeRouteHint(routeHint), { waitUntil: 'domcontentloaded' })
+  await page.goto?.(normalizeRouteHint(routeHint, context.executionTarget?.baseUrl), { waitUntil: 'domcontentloaded' })
 }
 
-function normalizeRouteHint(value: string | undefined): string {
-  const rawRoute = !value || value === '*' ? '/' : value
-  if (/^https?:\/\//i.test(rawRoute)) return rawRoute
-  const route = rawRoute.startsWith('/') ? rawRoute : `/${rawRoute}`
-  const baseUrl = process.env['PLAYWRIGHT_BASE_URL']
-  if (!baseUrl) return route
+/**
+ * Resolves a route against the run's base URL. The run target (execution_context.targetBaseUrl,
+ * the dashboard's "target base URL") wins over PLAYWRIGHT_BASE_URL, which is only the launch
+ * default; otherwise the browser would test one target while the verdict names another (B-02).
+ */
+function normalizeRouteHint(value: string | undefined, runBaseUrl?: string): string {
+  const rawRoute = !value || value === '*' ? '/' : value.trim()
+  const baseUrl = runBaseUrl || process.env['PLAYWRIGHT_BASE_URL']
+  const hasScheme = /^[a-z][a-z0-9+.-]*:/i.test(rawRoute)
 
-  try {
-    return new URL(route, baseUrl).toString()
-  } catch {
+  // S-07: route hints come from the generated adapter (an untrusted repository). The browser may only
+  // go to the run target's origin: a relative path, or an absolute http(s) URL on that same origin.
+  if (hasScheme) {
+    if (!baseUrl) throw new RouteOutsideTargetError(rawRoute)
+    let url: URL
+    let base: URL
+    try {
+      url = new URL(rawRoute)
+      base = new URL(baseUrl)
+    } catch {
+      throw new RouteOutsideTargetError(rawRoute)
+    }
+    if (url.origin !== base.origin || url.username || url.password) throw new RouteOutsideTargetError(rawRoute)
+    return url.toString()
+  }
+
+  const route = rawRoute.startsWith('/') ? rawRoute : `/${rawRoute}`
+  if (!baseUrl) {
+    if (route.startsWith('//') || route.includes('\\')) throw new RouteOutsideTargetError(rawRoute)
     return route
+  }
+  const confined = confineEndpointUrl(route, baseUrl)
+  if (!confined) throw new RouteOutsideTargetError(rawRoute)
+  return confined
+}
+
+class RouteOutsideTargetError extends Error {
+  readonly code = 'route_outside_target'
+  constructor(route: string) {
+    super(`Route "${route}" is outside the run target; only paths on the target origin are allowed.`)
+    this.name = 'RouteOutsideTargetError'
   }
 }
 
@@ -775,17 +859,6 @@ async function waitForVisibleText(page: PageLike, selectors: string[], timeoutMs
   return null
 }
 
-async function firstUsableLocator(factories: Array<() => LocatorLike | undefined>): Promise<LocatorLike | null> {
-  for (const factory of factories) {
-    const candidate = factory()
-    const locator = candidate?.first?.() ?? candidate
-    if (!locator) continue
-    if (await locatorVisible(locator)) return locator
-  }
-
-  return null
-}
-
 async function locatorVisible(locator: LocatorLike | undefined): Promise<boolean> {
   if (!locator) return false
   try {
@@ -832,7 +905,10 @@ function ok(output: Record<string, unknown>): ToolResult {
   return { ok: true, output }
 }
 
-function resolveApiBaseUrl(): string | null {
+/** The run's target (execution_context.targetBaseUrl) first; the launch environment is the fallback. */
+function resolveApiBaseUrl(context?: ToolContext): string | null {
+  const requested = context?.executionTarget?.baseUrl
+  if (requested) return requested
   return process.env['GENERIC_API_BASE_URL']
     ?? process.env['TARGET_API_BASE_URL']
     ?? process.env['API_BASE_URL']
@@ -870,8 +946,8 @@ function detectPrimaryEndpointPath(): string {
   return typeof nonRootRoute?.path === 'string' ? nonRootRoute.path : '/'
 }
 
-async function callEndpoint(endpointPath: string): Promise<Record<string, unknown>> {
-  const baseUrl = resolveApiBaseUrl()
+async function callEndpoint(endpointPath: string, context?: ToolContext): Promise<Record<string, unknown>> {
+  const baseUrl = resolveApiBaseUrl(context)
   if (!baseUrl) {
     return {
       executed: false,
@@ -896,12 +972,35 @@ async function callEndpoint(endpointPath: string): Promise<Record<string, unknow
   const timer = setTimeout(() => controller.abort(), 8_000)
 
   try {
-    const response = await fetch(url, { signal: controller.signal })
+    // S-14: only the first URL was confined; fetch then followed redirects to any host. Redirects
+    // are followed by hand, at most 5, and only while they stay on the configured origin.
+    const allowedOrigin = new URL(baseUrl).origin
+    let currentUrl = url
+    let response = await fetch(currentUrl, { signal: controller.signal, redirect: 'manual' })
+    for (let hops = 0; response.status >= 300 && response.status < 400 && response.headers.get('location'); hops += 1) {
+      const next = new URL(response.headers.get('location')!, currentUrl)
+      if (next.origin !== allowedOrigin || hops >= 5) {
+        await response.body?.cancel()
+        return {
+          executed: false,
+          mode: 'refused',
+          url: currentUrl,
+          endpointPath,
+          status: response.status,
+          reason: next.origin !== allowedOrigin
+            ? 'Redirect leaves the configured origin; it was not followed.'
+            : 'Too many redirects.',
+        }
+      }
+      await response.body?.cancel()
+      currentUrl = next.toString()
+      response = await fetch(currentUrl, { signal: controller.signal, redirect: 'manual' })
+    }
     const body = await response.text()
     return {
       executed: true,
       mode: 'http',
-      url,
+      url: currentUrl,
       endpointPath,
       status: response.status,
       ok: response.ok,
@@ -958,11 +1057,34 @@ function normalizeArgs(input: unknown): string[] {
   return args.filter((arg): arg is string => typeof arg === 'string')
 }
 
+// The model picks these args and the target's own code runs with them (S-03). Only help and version
+// flags plus plain subcommand names pass: no -e/--eval, no paths, no shell syntax, at most 4 args.
+const HELP_FLAGS = new Set(['--help', '-h', 'help', '--version', '-v', '-V', 'version'])
+const SUBCOMMAND = /^[a-z][a-z0-9:_-]{0,40}$/i
+
+export function isAllowedCliArgs(args: string[]): boolean {
+  if (args.length === 0 || args.length > 4) return false
+  return args.every((arg) => HELP_FLAGS.has(arg) || SUBCOMMAND.test(arg))
+}
+
+// Environment for the target's CLI: what a process needs to start, never the runtime's secrets
+// (provider keys, test credentials). AGENTIC_QA_CLI_ENV_ALLOWLIST adds names explicitly.
+const CLI_ENV_BASE = ['PATH', 'HOME', 'USER', 'LANG', 'LC_ALL', 'LC_CTYPE', 'TMPDIR', 'TEMP', 'TMP', 'TERM', 'NODE_ENV', 'SystemRoot', 'ComSpec', 'PATHEXT']
+
+export function cliEnvironment(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const extra = (env['AGENTIC_QA_CLI_ENV_ALLOWLIST'] ?? '').split(',').map((name) => name.trim()).filter(Boolean)
+  const result: NodeJS.ProcessEnv = { NO_COLOR: '1' }
+  for (const name of [...CLI_ENV_BASE, ...extra]) {
+    if (env[name] !== undefined) result[name] = env[name]
+  }
+  return result
+}
+
 function runProcess(command: string, args: string[], cwd: string, timeoutMs: number): Promise<ProcessResult> {
   return new Promise((resolve) => {
     const child = spawn(command, args, {
       cwd,
-      env: process.env,
+      env: cliEnvironment(),
       stdio: ['ignore', 'pipe', 'pipe'],
     })
     let stdout = ''

@@ -1,6 +1,7 @@
 import { runBootstrap } from '../services/discovery-service.ts'
 import { DiscoveryValidationError } from '../services/domain-specialist-service.ts'
 import { materializeLocalDiscovery } from '../services/local-discovery-materializer.ts'
+import { LocalConfinementError } from '../services/confined-local-fs.ts'
 
 export async function runDiscoverLocalCommand(args: string[]) {
   const repoPath = args[0]
@@ -20,6 +21,11 @@ export async function runDiscoverLocalCommand(args: string[]) {
     process.stdout.write(`${JSON.stringify({ ...bootstrap, ...local }, null, 2)}\n`)
   } catch (error) {
     if (error instanceof DiscoveryValidationError) {
+      process.stderr.write(`${JSON.stringify({ error: error.code, message: error.message })}\n`)
+      process.exitCode = 1
+      return
+    }
+    if (error instanceof LocalConfinementError) {
       process.stderr.write(`${JSON.stringify({ error: error.code, message: error.message })}\n`)
       process.exitCode = 1
       return

@@ -79,7 +79,7 @@ export const AgentProfileSchema = z.object({
   }),
   riskPolicy: RiskPolicySchema.optional(),
   canBlockRun: z.boolean().default(false),
-  outputContract: z.record(z.unknown()).optional(),
+  outputContract: z.record(z.string(), z.unknown()).optional(),
   promptPath: z.string().optional(),
   systemPrompt: z.string().optional(),
 })
@@ -91,8 +91,8 @@ export const ToolCallSchema = z.object({
   name: z.string().optional(),
   tool: z.string().optional(),
   input: z.unknown().optional(),
-  args: z.record(z.unknown()).optional(),
-  result: z.record(z.unknown()).optional(),
+  args: z.record(z.string(), z.unknown()).optional(),
+  result: z.record(z.string(), z.unknown()).optional(),
 })
 
 export type ToolCall = z.infer<typeof ToolCallSchema>
@@ -110,7 +110,9 @@ export type SyntheticToolResult = z.infer<typeof SyntheticToolResultSchema>
 export const ModelResponseSchema = z.object({
   text: z.string().optional(),
   toolCalls: z.array(ToolCallSchema),
-  stopReason: z.enum(['end_turn', 'tool_use', 'max_tokens', 'timeout']),
+  // 'refusal' (the model declined) and 'incomplete' (any stop the runtime does not recognize) are
+  // failures, never a normal end of turn (B-03).
+  stopReason: z.enum(['end_turn', 'tool_use', 'max_tokens', 'timeout', 'refusal', 'incomplete']),
   usage: z.object({
     inputTokens: z.number(),
     outputTokens: z.number(),
@@ -136,6 +138,8 @@ export interface ModelProviderOptions {
   maxTokens?: number
   temperature?: number
   model?: string
+  /** Aborted when the step times out or ends; providers pass it to the HTTP request (B-06). */
+  signal?: AbortSignal
 }
 
 export interface ModelProvider {
@@ -162,7 +166,7 @@ export const AgentStepOutputSchema = z.object({
   error: z.string().optional(),
   stepIndex: z.number().optional(),
   agentId: z.string().optional(),
-  output: z.record(z.unknown()).default({}),
+  output: z.record(z.string(), z.unknown()).default({}),
   durationMs: z.number().default(0),
   success: z.boolean().optional(),
 })

@@ -1,7 +1,7 @@
+import { API_BASE } from '@/lib/api-base'
 import { useEffect, useState } from 'react'
 import { Card } from '@/components/ui/Card'
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001'
 
 interface StepHistory {
   totalExecutions: number

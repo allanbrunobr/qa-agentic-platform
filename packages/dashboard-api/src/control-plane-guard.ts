@@ -20,6 +20,20 @@ export function allowedWebOrigins(webPort: number): string[] {
   ]
 }
 
+const LOOPBACK_HOSTNAMES = new Set(['127.0.0.1', 'localhost', '[::1]'])
+
+/**
+ * True when the Host header names loopback. A DNS-rebinding page reaches 127.0.0.1 under its own
+ * domain name, so its requests carry that domain here; refusing them keeps the dashboard page (which
+ * embeds the token) and the API out of its reach.
+ */
+export function isLoopbackHost(value: string | undefined): boolean {
+  if (!value) return false
+  const trimmed = value.trim().toLowerCase()
+  const match = /^(\[::1\]|[a-z0-9.-]+)(?::\d{1,5})?$/.exec(trimmed)
+  return Boolean(match?.[1] && LOOPBACK_HOSTNAMES.has(match[1]))
+}
+
 export async function ensureControlPlaneToken(tokenPath = controlPlaneTokenPath()): Promise<string> {
   await fs.mkdir(path.dirname(tokenPath), { recursive: true })
   const created = randomBytes(32).toString('hex')
@@ -67,7 +81,8 @@ export class ControlPlaneError extends Error {
   }
 }
 
-export async function readJsonBody(request: IncomingMessage): Promise<any> {
+// The caller names the expected shape; the body is not validated here (each handler checks its fields).
+export async function readJsonBody<T = unknown>(request: IncomingMessage): Promise<T> {
   const chunks: Buffer[] = []
   let total = 0
   for await (const chunk of request) {
@@ -79,9 +94,9 @@ export async function readJsonBody(request: IncomingMessage): Promise<any> {
     chunks.push(buffer)
   }
   const text = Buffer.concat(chunks).toString('utf8')
-  if (!text) return {}
+  if (!text) return {} as T
   try {
-    return JSON.parse(text)
+    return JSON.parse(text) as T
   } catch {
     throw new ControlPlaneError(400, 'invalid_json')
   }

@@ -1,4 +1,3 @@
-import { z } from 'zod';
 import type { SensorFn } from '../services/sensor-runner.js';
 import { hasArtifactEvidence } from './artifact-evidence.js';
 

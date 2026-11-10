@@ -175,7 +175,7 @@ export interface ExecutionRecord extends AdapterExecutionDraft {
   events: ExecutionEventRecord[]
 }
 
-export interface ExecutionInitRequest extends AdapterExecutionInit {}
+export type ExecutionInitRequest = AdapterExecutionInit
 export interface ExecutionInitResponse {
   execution: ExecutionRecord
 }

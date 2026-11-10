@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { removeFixtureOnExit } from './lib/temp-fixture.mjs'
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.resolve(scriptDir, '..')
@@ -238,6 +239,7 @@ function writeFixture(root, fixture) {
 try {
   assert(tsxLoader, 'tsx loader not found; install dependencies before running domain fixture matrix verification')
   const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agentic-platform-domain-fixtures-'))
+  removeFixtureOnExit(fixtureRoot, 'verify-domain-fixture-matrix')
   for (const fixture of fixtures) writeFixture(fixtureRoot, fixture)
 
   log(`fixtureRoot=${fixtureRoot}`)

@@ -15,7 +15,7 @@
  * See docs/decisions/0004-untrusted-repository-content.md
  */
 
-import { createHash } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 
 export type SourceKind =
   | 'repo_file'
@@ -55,6 +55,7 @@ const END_MARKER = 'END_EXTERNAL_UNTRUSTED_CONTENT';
  */
 function neutralizeSyntacticMarkers(text: string): string {
   // Strip hidden characters before the marker regex so they cannot open a gap.
+  // eslint-disable-next-line no-control-regex -- removing control characters is the point of this regex
   let cleaned = text.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F\u200B-\u200D\uFEFF]/g, '');
 
   // Stronger syntactic masking / Content Injection defense (expanded from .specs/agent-security/)
@@ -120,10 +121,15 @@ export function sanitizeExternalContent(
   // Do not embed attacker-controlled path text in the header line itself.
   // The original path (if relevant) is associated via the call site (e.g. "FILE #N (hash=...)") 
   // or lives inside the neutralized body for the data block.
-  const pathInfo = ''; // path omitted from header; use content_hash + source only for safe metadata in header.
-  const wrapped = `${BEGIN_MARKER} (source=${kind}, content_hash=${contentHash}, trust=LOW)
+  //
+  // S-13: the content must not be able to close its own block. A marker inside the content is
+  // neutralized, and each block carries a random nonce on both lines, so the content cannot know the
+  // end line that actually closes it.
+  cleaned = cleaned.replace(/(?:BEGIN|END)_EXTERNAL_UNTRUSTED_CONTENT/gi, '[REDACTED_BOUNDARY_MARKER]');
+  const nonce = randomBytes(8).toString('hex');
+  const wrapped = `${BEGIN_MARKER} nonce=${nonce} (source=${kind}, content_hash=${contentHash}, trust=LOW)
 ${cleaned}
-${END_MARKER}`;
+${END_MARKER} nonce=${nonce}`;
 
   return {
     sanitized: wrapped,

@@ -15,7 +15,7 @@ const CodeGraphNodeSchema = z.object({
     column: z.number().int().positive().optional(),
     endLine: z.number().int().positive().optional(),
   }).optional(),
-  metadata: z.record(z.unknown()).default({}),
+  metadata: z.record(z.string(), z.unknown()).default({}),
 }).passthrough();
 
 const CodeGraphEdgeSchema = z.object({
@@ -25,7 +25,7 @@ const CodeGraphEdgeSchema = z.object({
   type: z.string().min(1),
   label: z.string().optional(),
   confidence: z.number().min(0).max(1).optional(),
-  metadata: z.record(z.unknown()).default({}),
+  metadata: z.record(z.string(), z.unknown()).default({}),
 }).passthrough();
 
 const CodeGraphSchema = z.object({

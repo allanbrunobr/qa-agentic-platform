@@ -95,6 +95,8 @@ npm run discover-local -- "$TARGET"
 
 Discovery writes generated files such as `adapter/scenarios/scenarios.generated.json` and `adapter/workflow-contracts/*.generated.yaml` to `$TARGET/.agentic-qa/`. For the example app, it finds two scenarios: `browse_products` and `place_order`.
 
+To bring an existing `.agentic-qa` to a newer version of this platform, stop its runtime and run `npm run upgrade-local -- "$TARGET"`. It replaces only the runtime code, keeps the adapter files, databases, artifacts and your `.env.local` variables, backs up each database before applying its pending schema migrations, and refuses (changing nothing) a database written by a newer runtime.
+
 **3. Start the application under test**
 
 The example app is a single static page. Any static server works:
@@ -152,17 +154,24 @@ The installer looks for the Anthropic key in these sources, in order. It uses th
 4. `ANTHROPIC_API`
 5. the target's `.agentic-qa/.env.local`
 
+On a reinstall or `upgrade-local`, a key already set in the target's `.agentic-qa/.env.local` is kept, rewritten as `KEY="value"` (the only form the launcher reads); the order above only decides a key that is missing there. An empty line (`ANTHROPIC_API_KEY=`) counts as missing, and so does a value with characters the launcher refuses: it is replaced, and the result of `install-local` and of `upgrade-local` lists it in `envLocalReplacedKeys`. A key with unsafe characters from the other sources stops the install before anything is written; the error names the source.
+
 The installer looks for the OpenAI key in these sources, in order: `agentic-platform/.env.local`, `OPENAI_API_KEY`, the target's `.agentic-qa/.env.local`. In the generated dashboard, **Settings** selects the provider for the next run.
 
-Runtime variables, read by the generated runtime:
+Runtime variables, read by the generated runtime. The launcher loads only `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` from `.agentic-qa/.env.local`; set the variables below in the environment you start the launcher from:
 
 | Variable | Used for |
 | --- | --- |
 | `PLAYWRIGHT_BASE_URL` | Base URL of the frontend under test. |
 | `HEADLESS` | Set `false` to show the browser during runs. |
 | `AGENTIC_QA_FORCE_DETERMINISTIC_RUNTIME` | Set `1` to run with deterministic tools and no model calls. |
+| `AGENTIC_QA_WEB_ORIGIN` | Comma-separated extra dashboard origins the API accepts. Ports 5176 (launcher) and 5173 (`dev:web`) on `127.0.0.1`/`localhost` are always accepted. Any other `Origin` gets `403`. |
+| `AGENTIC_QA_ALLOWED_HOSTS` | Comma-separated extra host names the API accepts in the `Host` header. Loopback names are always accepted; anything else gets `403`. |
+| `AGENTIC_QA_API_TOKEN_PATH` | Location of the local API token. Default `.agentic-qa/data/runtime-api.token`, created on first start. Every API request except `GET /health` needs the header `x-agentic-token` with its contents; the dashboard adds it through its proxy. |
+| `AGENTIC_QA_API_URL` | Where the dashboard's dev-server proxy forwards `/api` and `/ws`. The launcher sets it. |
 | `GENERIC_API_BASE_URL` / `TARGET_API_BASE_URL` / `API_BASE_URL` | Real HTTP probes for backend API repositories. |
-| `GENERIC_CLI_COMMAND` / `TARGET_CLI_COMMAND` | CLI to probe when the `bin` entry in `package.json` is not sufficient. |
+| `GENERIC_CLI_COMMAND` / `TARGET_CLI_COMMAND` | CLI to probe when the `bin` entry in `package.json` is not sufficient. The CLI runs with a minimal environment (`PATH`, `HOME`, locale, temp dirs) and never receives provider keys or test credentials; it accepts only help/version flags and plain subcommand names. |
+| `AGENTIC_QA_CLI_ENV_ALLOWLIST` | Comma-separated extra environment variable names passed to the target CLI. |
 | `AGENTIC_QA_TEMPLATE_ROOT` | Installer only. Absolute path to an alternative runtime template. |
 
 If the adapter cannot infer application credentials (login users, seed data) from the repository, supply them yourself.
@@ -247,6 +256,7 @@ Other verifiers are available as `npm run verify:<name>`. See the `scripts` sect
 - [Architecture](docs/architecture.md): components, data flow, maturity levels L1–L5, security boundaries
 - [Generated files](docs/generated-files.md): what `install-local` and `discover-local` write, and what to review
 - [Testing](docs/testing.md): test layers and how to run each one
+- [Environment variables](docs/environment-variables.md): the variables the code reads, checked by `npm run verify:env-docs`
 - [Decision records](docs/decisions/): why the runtime is host-local, why runs are checked against deterministic contracts, why generic capabilities fail closed, how repository content is treated as untrusted
 - [Contributor and agent guidelines](AGENTIC.md)
 - [Changelog](CHANGELOG.md)

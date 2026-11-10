@@ -4,6 +4,8 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { removeFixtureOnExit } from './lib/temp-fixture.mjs'
+import { isolatedProviderEnv } from './lib/provider-isolation.mjs'
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.resolve(scriptDir, '..')
@@ -23,6 +25,7 @@ const verificationEnv = {
   PATH: fs.existsSync(preferredNodePath)
     ? `${preferredNodeBin}${path.delimiter}${process.env.PATH ?? ''}`
     : process.env.PATH,
+  ...isolatedProviderEnv(),
 }
 
 function log(message) {
@@ -51,6 +54,7 @@ function readGeneratedJson(fixtureName, relativePath) {
 function createFixtures() {
   fs.rmSync(fixtureRoot, { recursive: true, force: true })
   fs.mkdirSync(fixtureRoot, { recursive: true })
+  removeFixtureOnExit(fixtureRoot, 'verify-generic-repository-types')
 
   writeFile('backend-api', 'package.json', `${JSON.stringify({
     name: 'generic-backend-api-fixture',

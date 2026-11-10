@@ -6,8 +6,6 @@ import { ToolRegistry } from '../services/tool-registry.js'
 import type { ToolHandler, ToolMetadata } from '../types/tool-types.js'
 import type { AgentProfile, ModelProvider, ModelResponse } from '../types/agent-types.js'
 
-const echoHandler: ToolHandler = async (input) => ({ ok: true, output: input })
-
 function makeMetadata(name: string): ToolMetadata {
   return { name, description: `Tool ${name}`, requiresBrowser: false, tags: [] }
 }
@@ -89,7 +87,7 @@ describe('Story 1.1: Close Tool Ledger on Timeout and Interruption', () => {
         (e) => e.type === 'info' && (e.payload as Record<string, unknown>)?.['event'] === 'tool_synthetic_closure',
       )
       expect(closureEvents).toHaveLength(1)
-      expect((closureEvents[0].payload as Record<string, unknown>)?.['reason']).toBe('interruption')
+      expect((closureEvents[0]!.payload as Record<string, unknown>)?.['reason']).toBe('interruption')
     })
 
     it('returns false for unclosed tool calls', () => {

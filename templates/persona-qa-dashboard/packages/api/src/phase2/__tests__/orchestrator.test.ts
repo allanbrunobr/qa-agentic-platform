@@ -41,6 +41,7 @@ function makeSuccessOutput(stepIndex: number): AgentStepOutput {
     agentId: 'sales_associate',
     output: { customerId: '123', orderId: '456' },
     toolCalls: [],
+    findings: [],
     durationMs: 100,
     success: true,
   };
@@ -52,6 +53,7 @@ function makeFailOutput(stepIndex: number, error?: string): AgentStepOutput {
     agentId: 'sales_associate',
     output: {},
     toolCalls: [],
+    findings: [],
     durationMs: 50,
     success: false,
     error: error ?? 'Step failed',
@@ -212,6 +214,7 @@ describe('Orchestrator', () => {
           agentId: 'sales_associate',
           output: { customerId: '123', orderId: '456' },
           toolCalls: [],
+          findings: [],
           durationMs: 100,
           success: true,
         })
@@ -220,6 +223,7 @@ describe('Orchestrator', () => {
           agentId: 'fulfillment_agent',
           output: { orderFulfilled: true },
           toolCalls: [],
+          findings: [],
           durationMs: 100,
           success: true,
         })
@@ -261,6 +265,7 @@ describe('Orchestrator', () => {
         agentId: 'sales_associate',
         output: { customerId: '123', orderId: '456' },
         toolCalls: [],
+        findings: [],
         durationMs: 100,
         success: true,
       })
@@ -385,6 +390,7 @@ describe('Orchestrator', () => {
         agentId: 'sales_associate',
         output: {},
         toolCalls: [],
+        findings: [],
         durationMs: 100,
         success: true,
       });
@@ -420,6 +426,7 @@ describe('Orchestrator', () => {
           agentId: 'sales_associate',
           output: { customerId: '123', customerName: 'Maria Teste' },
           toolCalls: [],
+          findings: [],
           durationMs: 100,
           success: true,
         };

@@ -357,6 +357,7 @@ describe('Run Resume', () => {
       agentId: 'sales_associate',
       output: { orderId: '789' },
       toolCalls: [],
+      findings: [],
       durationMs: 100,
       success: true,
     });
@@ -381,6 +382,7 @@ describe('Run Resume', () => {
       agentId: 'sales_associate',
       output: { customerId: '123', orderId: '456' },
       toolCalls: [],
+      findings: [],
       durationMs: 50,
       success: true,
     });

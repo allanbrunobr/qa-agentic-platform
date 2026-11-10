@@ -292,7 +292,7 @@ export async function statsRoutes(app: FastifyInstance): Promise<void> {
     // Find the most recent batch that covers all registered scenarios
     // (= a real full suite execution). Fall back to the most recent batch.
     let fullSuiteBatch: RunRow[] | null = null;
-    let latestBatch: RunRow[] | null = batches[0] ?? null;
+    const latestBatch: RunRow[] | null = batches[0] ?? null;
 
     for (const batch of batches) {
       const batchScenarios = new Set(batch.map(r => r.scenario_id));

@@ -115,7 +115,7 @@ describe('/api/p2/domain-discovery', () => {
 
   it('blocks restricted domain discovery scenario candidates from draft creation', async () => {
     const bundle = domainBundle();
-    bundle.scenarios[0].status = 'restricted';
+    bundle.scenarios[0]!.status = 'restricted';
     await fs.mkdir(path.dirname(bundleFile), { recursive: true });
     await fs.writeFile(bundleFile, JSON.stringify(bundle), 'utf-8');
 

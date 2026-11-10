@@ -8,13 +8,25 @@ import path from 'node:path'
 import type { ToolHandler, ToolMetadata, ToolContext, ToolResult } from '../types/tool-types.js'
 import type { ToolRegistry } from '../services/tool-registry.js'
 import { resolvePhase2ArtifactPath, type SessionService } from '../services/session-service.js'
-import { hasRenderablePageContent, type EvidencePage } from './browser-page-evidence.js'
+import { getEvidencePageUrl, hasRenderablePageContent, type EvidencePage } from './browser-page-evidence.js'
 
 // --- captureScreenshot ---
 
 export interface CaptureScreenshotInput {
   description: string
   fullPage?: boolean
+}
+
+/**
+ * B-06: once the step that called a tool has ended (timeout or not), the tool must not store evidence
+ * into it. Checked before touching the page and again right before writing.
+ */
+function stepAborted(context: ToolContext): ToolResult | null {
+  if (!context.signal?.aborted) return null
+  return {
+    ok: false,
+    error: { code: 'step_aborted', message: 'The step this tool belonged to has already ended; no evidence was stored.', retryable: false },
+  }
 }
 
 export function makeCaptureScreenshotHandler(sessionService: SessionService): ToolHandler {
@@ -31,6 +43,9 @@ export function makeCaptureScreenshotHandler(sessionService: SessionService): To
       return { ok: false, error: { code: 'missing_context', message: 'sessionId is required for captureScreenshot', retryable: false } }
     }
 
+    const abortedBefore = stepAborted(context)
+    if (abortedBefore) return abortedBefore
+
     try {
       const page = context.page as EvidencePage
       if (!(await hasRenderablePageContent(page))) {
@@ -45,6 +60,8 @@ export function makeCaptureScreenshotHandler(sessionService: SessionService): To
       }
 
       const buffer = await page.screenshot({ fullPage: fullPage ?? false })
+      const abortedAfterCapture = stepAborted(context)
+      if (abortedAfterCapture) return abortedAfterCapture
       const filePath = `screenshots/${context.sessionId}/${Date.now()}.png`
       const absolutePath = resolvePhase2ArtifactPath(filePath)
       await mkdir(path.dirname(absolutePath), { recursive: true })
@@ -102,19 +119,29 @@ export function makeCollectDomSnippetHandler(sessionService: SessionService): To
       return { ok: false, error: { code: 'missing_context', message: 'sessionId is required for collectDomSnippet', retryable: false } }
     }
 
+    const abortedBefore = stepAborted(context)
+    if (abortedBefore) return abortedBefore
+
     try {
-      const page = context.page as { locator: (sel: string) => { innerHTML: () => Promise<string> } }
+      const page = context.page as EvidencePage & { locator: (sel: string) => { innerHTML: () => Promise<string> } }
       const html = await page.locator(selector).innerHTML()
+      // Measured with the same check captureScreenshot uses to refuse a page. A snippet of a blank
+      // page is the only evidence a white screen can have, so a screenshot evidence policy accepts it.
+      const pageBlank = !(await hasRenderablePageContent(page))
+      // about:blank, before the first navigation, is blank too but shows nothing of the application.
+      const navigated = getEvidencePageUrl(page) !== 'about:blank'
+      const abortedAfterRead = stepAborted(context)
+      if (abortedAfterRead) return abortedAfterRead
 
       const artifact = sessionService.storeArtifact(context.sessionId, {
         type: 'dom_snippet',
         agentRole: context.agentRole ?? 'unknown',
         description,
         content: html,
-        metadata: { selector },
+        metadata: { selector, pageBlank, navigated },
       })
 
-      return { ok: true, output: { artifactId: artifact.id, selector, htmlLength: html.length } }
+      return { ok: true, output: { artifactId: artifact.id, selector, htmlLength: html.length, pageBlank, navigated } }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       return { ok: false, error: { code: 'dom_snippet_error', message, retryable: true } }
@@ -124,7 +151,9 @@ export function makeCollectDomSnippetHandler(sessionService: SessionService): To
 
 export const collectDomSnippetMetadata: ToolMetadata = {
   name: 'collectDomSnippet',
-  description: 'Capture a DOM fragment as evidence of page state',
+  description: 'Capture a DOM fragment as evidence of page state. The result says pageBlank: true when the page has no renderable '
+    + 'content (captureScreenshot refuses such a page), and navigated: false while the page is still about:blank. '
+    + 'A snippet with pageBlank: true and navigated: true (the application rendered a blank page) can stand in for a screenshot as finding evidence.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -155,6 +184,9 @@ export function makeRecordArtifactHandler(sessionService: SessionService): ToolH
     if (!context.sessionId) {
       return { ok: false, error: { code: 'missing_context', message: 'sessionId is required for recordArtifact', retryable: false } }
     }
+
+    const aborted = stepAborted(context)
+    if (aborted) return aborted
 
     try {
       const artifact = sessionService.storeArtifact(context.sessionId, {

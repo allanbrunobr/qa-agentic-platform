@@ -1,5 +1,4 @@
 import type { FastifyInstance } from 'fastify';
-import { sql, desc } from 'drizzle-orm';
 import { getDb, schema } from '../db/index.js';
 import type { Finding, Scenario } from '../db/schema.js';
 

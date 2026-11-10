@@ -21,6 +21,7 @@ function makeContext(overrides?: Partial<SensorContext>): SensorContext {
     agentId: 'sales_associate',
     output: { customerId: '123' },
     toolCalls: [],
+    findings: [],
     durationMs: 100,
     success: true,
   };
@@ -66,6 +67,7 @@ describe('SchemaSensor', () => {
         toolCalls: [
           { tool: 'registerCustomer', args: { name: 'Alex' }, result: { id: '123', name: 'Alex' } },
         ],
+        findings: [],
         durationMs: 100,
         success: true,
       },
@@ -91,6 +93,7 @@ describe('SchemaSensor', () => {
         agentId: 'sales_associate',
         output: {},
         toolCalls: [{ tool: 'noop', args: {} }],
+        findings: [],
         durationMs: 50,
         success: true,
       },
@@ -117,6 +120,7 @@ describe('OutputSensor', () => {
         agentId: 'sales_associate',
         output: {}, // missing customerId
         toolCalls: [],
+        findings: [],
         durationMs: 100,
         success: true,
       },
@@ -135,6 +139,7 @@ describe('OutputSensor', () => {
         agentId: 'sales_associate',
         output: { artifactId: 'artifact_1', type: 'customerId' },
         toolCalls: [],
+        findings: [],
         durationMs: 100,
         success: true,
       },
@@ -163,6 +168,7 @@ describe('OutputSensor', () => {
         agentId: 'sales_associate',
         output: {},
         toolCalls: [],
+        findings: [],
         durationMs: 100,
         success: true,
       },
@@ -197,6 +203,7 @@ describe('OutputSensor', () => {
         agentId: 'sales_associate',
         output: {},
         toolCalls: [],
+        findings: [],
         durationMs: 50,
         success: false,
         // no error field
@@ -224,6 +231,7 @@ describe('OutputSensor', () => {
         agentId: 'sales_associate',
         output: {},
         toolCalls: [],
+        findings: [],
         durationMs: 50,
         success: false,
         error: 'Something went wrong',

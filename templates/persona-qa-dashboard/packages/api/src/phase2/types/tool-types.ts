@@ -22,8 +22,8 @@ export type ToolRiskLevel = z.infer<typeof ToolRiskLevelSchema>
 export const ToolMetadataSchema = z.object({
   name: z.string(),
   description: z.string(),
-  inputSchema: z.record(z.unknown()).optional(),
-  outputSchema: z.record(z.unknown()).optional(),
+  inputSchema: z.record(z.string(), z.unknown()).optional(),
+  outputSchema: z.record(z.string(), z.unknown()).optional(),
   requiresBrowser: z.boolean().default(false),
   riskLevel: ToolRiskLevelSchema.optional(),
   tags: z.array(z.string()).default([]),
@@ -43,11 +43,27 @@ export const ToolPolicySchema = z.object({
 
 export type ToolPolicy = z.infer<typeof ToolPolicySchema>
 
+/**
+ * What the run is testing, as chosen when the run started (execution_context). Tools must prefer it
+ * over environment defaults such as PLAYWRIGHT_BASE_URL or AGENTIC_QA_TARGET_REPO, or the verdict is
+ * recorded for a target that was never exercised.
+ */
+export interface ExecutionTarget {
+  baseUrl?: string
+  targetRepoPath?: string
+}
+
 export interface ToolContext {
   page?: unknown
   sessionId?: string
   agentRole?: string
   artifacts?: Record<string, unknown>
+  executionTarget?: ExecutionTarget
+  /**
+   * Aborted when the step ends (timeout, interruption, or normal completion). Tools must not act on
+   * the page or store artifacts after it fires: the step they belonged to is over (B-06).
+   */
+  signal?: AbortSignal
 }
 
 export type ToolHandler = (input: unknown, context: ToolContext) => Promise<ToolResult>

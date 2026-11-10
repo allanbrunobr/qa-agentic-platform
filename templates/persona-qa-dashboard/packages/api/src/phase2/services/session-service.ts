@@ -15,6 +15,8 @@ import type {
   StepExecutionStatus,
 } from '../types/scenario-types.js'
 import { diagnoseFailureMessage } from './failure-diagnosis-service.js'
+import { applyMigrations } from '../../db/migrations.js'
+import { runtimeMigrations } from '../../db/runtime-schema.js'
 
 const DEFAULT_PHASE2_ARTIFACT_DIR = process.env['PHASE2_ARTIFACT_DIR'] ?? path.resolve(process.cwd(), 'artifacts')
 
@@ -66,6 +68,8 @@ type FindingRow = {
   agent_id: string | null
   step_id: string | null
   created_at: string
+  expected: string | null
+  actual: string | null
 }
 
 type CheckpointRow = {
@@ -610,7 +614,7 @@ export class SessionService {
 
     const findingRows = this.sqlite
       .prepare(
-        `SELECT id, session_id, severity, title, description, evidence, agent_id, step_id, created_at
+        `SELECT id, session_id, severity, title, description, evidence, agent_id, step_id, created_at, expected, actual
          FROM p2_session_findings
          WHERE session_id = ?
          ORDER BY created_at ASC, id ASC`,
@@ -629,13 +633,13 @@ export class SessionService {
 
     const artifacts = Object.fromEntries(
       artifactRows.map((artifact) => {
-        const payload = artifact.payload ? JSON.parse(artifact.payload) : {
+        const payload = artifact.payload ? parseStoredJson(artifact.payload) : {
           artifactId: String(artifact.id),
           type: artifact.artifact_type,
           description: artifact.description,
           filePath: artifact.file_path,
           content: artifact.content,
-          metadata: artifact.metadata ? JSON.parse(artifact.metadata) : undefined,
+          metadata: artifact.metadata ? parseStoredJson(artifact.metadata) : undefined,
         }
         return [artifact.artifact_key, payload]
       }),
@@ -649,7 +653,7 @@ export class SessionService {
       startedAt: row.started_at ?? row.created_at,
       completedAt: row.completed_at ?? undefined,
       events: events.map((event) => {
-        const data = event.data ? JSON.parse(event.data) as Record<string, unknown> : undefined
+        const data = event.data ? parseStoredJson(event.data) as Record<string, unknown> : undefined
         return {
           id: String(event.id),
           sessionId: event.session_id,
@@ -670,7 +674,9 @@ export class SessionService {
         severity: (finding.severity ?? 'info') as SessionFinding['severity'],
         title: finding.title ?? 'Untitled',
         description: finding.description ?? undefined,
-        evidence: finding.evidence ? JSON.parse(finding.evidence) : null,
+        evidence: finding.evidence ? parseStoredJson(finding.evidence) : null,
+        ...(finding.expected ? { expected: finding.expected } : {}),
+        ...(finding.actual ? { actual: finding.actual } : {}),
         createdAt: finding.created_at,
         timestamp: finding.created_at,
       })),
@@ -681,10 +687,69 @@ export class SessionService {
     }
   }
 
+  /**
+   * Closes every session still pending or running as failed, with an interruption_recorded event
+   * (B-07). Called when the API starts (sessions left by a process that died or was killed) and on
+   * graceful shutdown (sessions this process is abandoning). Without it they stayed "running"
+   * forever, their verdict stayed contract_evaluating, and the quality gate never counted them.
+   * Returns the ids it closed.
+   */
+  failInterruptedSessions(reason: string): string[] {
+    const rows = this.sqlite
+      .prepare("SELECT session_id FROM p2_sessions WHERE status IN ('pending', 'running') ORDER BY created_at")
+      .all() as Array<{ session_id: string }>
+    for (const { session_id: sessionId } of rows) {
+      this.addEvent(sessionId, 'interruption_recorded', {
+        reason,
+        message: `Session interrupted (${reason}) before it finished; it is recorded as failed.`,
+      })
+      this.updateStatus(sessionId, 'failed')
+    }
+    return rows.map((row) => row.session_id)
+  }
+
+  /**
+   * Records an operator reset of a scenario's quality gate (B-01). The gate then ignores sessions
+   * that started before the reset, so a restricted scenario can run again to requalify. The reason
+   * is kept for audit and never deleted.
+   */
+  recordQualityGateReset(scenarioId: string, reason: string, previousStatus: string): QualityGateReset {
+    const reset: QualityGateReset = {
+      id: randomUUID(),
+      scenarioId,
+      reason,
+      previousStatus,
+      createdAt: new Date().toISOString(),
+    }
+    this.sqlite
+      .prepare('INSERT INTO p2_quality_gate_resets (id, scenario_id, reason, previous_status, created_at) VALUES (?, ?, ?, ?, ?)')
+      .run(reset.id, reset.scenarioId, reset.reason, reset.previousStatus, reset.createdAt)
+    return reset
+  }
+
+  getLatestQualityGateReset(scenarioId: string): QualityGateReset | null {
+    const row = this.sqlite
+      .prepare('SELECT id, scenario_id, reason, previous_status, created_at FROM p2_quality_gate_resets WHERE scenario_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1')
+      .get(scenarioId) as { id: string; scenario_id: string; reason: string; previous_status: string; created_at: string } | undefined
+    if (!row) return null
+    return { id: row.id, scenarioId: row.scenario_id, reason: row.reason, previousStatus: row.previous_status, createdAt: row.created_at }
+  }
+
   getAllSessions(): Session[] {
     const rows = this.sqlite
       .prepare(`SELECT session_id FROM p2_sessions ORDER BY rowid ASC`)
       .all() as Array<{ session_id: string }>
+
+    return rows
+      .map((row) => this.getSession(row.session_id))
+      .filter((session): session is Session => session !== undefined)
+  }
+
+  /** The sessions of one scenario, through the scenario index; the quality gate needs no others (B-09). */
+  getSessionsForScenario(scenarioId: string): Session[] {
+    const rows = this.sqlite
+      .prepare(`SELECT session_id FROM p2_sessions WHERE scenario_id = ? ORDER BY rowid ASC`)
+      .all(scenarioId) as Array<{ session_id: string }>
 
     return rows
       .map((row) => this.getSession(row.session_id))
@@ -711,9 +776,9 @@ export class SessionService {
   }
 
   addEvent(sessionId: string, type: SessionEventType, data?: Record<string, unknown>): SessionEvent {
+    // ensureSession guarantees the row exists. Reloading the whole session here (every event,
+    // artifact and finding) made each append slower as the session grew (B-09).
     this.ensureSession(sessionId)
-    const session = this.getSession(sessionId)
-    if (!session) throw new Error(`Session ${sessionId} not found`)
 
     const nextSequenceRow = this.sqlite
       .prepare(`SELECT COALESCE(MAX(sequence), -1) + 1 AS next_sequence FROM p2_session_events WHERE session_id = ?`)
@@ -2360,6 +2425,8 @@ export class SessionService {
       evidence: finding.evidence ?? null,
       agentId: finding.agentId ?? finding.agentRole ?? null,
       stepId: finding.stepId ?? null,
+      expected: finding.expected ?? null,
+      actual: finding.actual ?? null,
       createdAt: timestamp,
     })
 
@@ -2399,14 +2466,16 @@ export class SessionService {
       evidence: unknown
       agentId: unknown
       stepId: unknown
+      expected?: unknown
+      actual?: unknown
       createdAt: string
     },
   ): number {
     const result = this.sqlite
       .prepare(
         `INSERT INTO p2_session_findings (
-           session_id, severity, title, description, evidence, agent_id, step_id, created_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+           session_id, severity, title, description, evidence, agent_id, step_id, expected, actual, created_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         sessionId,
@@ -2416,6 +2485,8 @@ export class SessionService {
         finding.evidence ? JSON.stringify(finding.evidence) : null,
         typeof finding.agentId === 'string' ? finding.agentId : null,
         typeof finding.stepId === 'string' ? finding.stepId : null,
+        typeof finding.expected === 'string' ? finding.expected : null,
+        typeof finding.actual === 'string' ? finding.actual : null,
         finding.createdAt,
       )
 
@@ -2423,260 +2494,28 @@ export class SessionService {
   }
 
   private ensureTables(): void {
-    this.sqlite.exec(`
-      CREATE TABLE IF NOT EXISTS p2_sessions (
-        session_id TEXT PRIMARY KEY,
-        run_id INTEGER,
-        scenario_id TEXT NOT NULL,
-        status TEXT NOT NULL DEFAULT 'pending',
-        created_at TEXT NOT NULL,
-        started_at TEXT,
-        completed_at TEXT
-      );
+    applyMigrations(this.sqlite, 'phase2-sessions', runtimeMigrations(() => new Database(':memory:'))['phase2-sessions'])
+  }
+}
 
-      CREATE TABLE IF NOT EXISTS p2_session_events (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        session_id TEXT NOT NULL REFERENCES p2_sessions(session_id),
-        sequence INTEGER NOT NULL,
-        type TEXT NOT NULL,
-        timestamp TEXT NOT NULL,
-        agent_role TEXT,
-        data TEXT,
-        UNIQUE(session_id, sequence)
-      );
 
-      CREATE TABLE IF NOT EXISTS p2_session_checkpoints (
-        checkpoint_id TEXT PRIMARY KEY,
-        session_id TEXT NOT NULL REFERENCES p2_sessions(session_id),
-        created_at TEXT NOT NULL,
-        last_completed_step INTEGER NOT NULL,
-        cursor INTEGER NOT NULL
-      );
+export interface QualityGateReset {
+  id: string
+  scenarioId: string
+  reason: string
+  previousStatus: string
+  createdAt: string
+}
 
-      CREATE TABLE IF NOT EXISTS p2_session_artifacts (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        session_id TEXT NOT NULL REFERENCES p2_sessions(session_id),
-        artifact_key TEXT NOT NULL,
-        artifact_type TEXT,
-        agent_role TEXT,
-        description TEXT,
-        file_path TEXT,
-        content TEXT,
-        metadata TEXT,
-        payload TEXT,
-        created_at TEXT NOT NULL,
-        UNIQUE(session_id, artifact_key)
-      );
-
-      CREATE TABLE IF NOT EXISTS p2_session_findings (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        session_id TEXT NOT NULL REFERENCES p2_sessions(session_id),
-        severity TEXT,
-        title TEXT,
-        description TEXT,
-        evidence TEXT,
-        agent_id TEXT,
-        step_id TEXT,
-        created_at TEXT NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS p2_step_performance (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        session_id TEXT NOT NULL REFERENCES p2_sessions(session_id),
-        scenario_id TEXT NOT NULL,
-        step_id TEXT NOT NULL,
-        agent_id TEXT NOT NULL,
-        status TEXT NOT NULL,
-        success INTEGER NOT NULL,
-        attempt INTEGER NOT NULL,
-        duration_ms INTEGER NOT NULL,
-        error_category TEXT,
-        error_message TEXT,
-        started_at TEXT,
-        completed_at TEXT,
-        metadata TEXT,
-        created_at TEXT NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS p2_adaptation_events (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        session_id TEXT REFERENCES p2_sessions(session_id),
-        scenario_id TEXT NOT NULL,
-        step_id TEXT,
-        adaptation_type TEXT NOT NULL,
-        previous_value TEXT,
-        new_value TEXT,
-        reason TEXT NOT NULL,
-        confidence REAL NOT NULL,
-        outcome TEXT,
-        metadata TEXT,
-        timestamp TEXT NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS p2_learning_proposals (
-        proposal_id TEXT PRIMARY KEY,
-        recommendation_id TEXT NOT NULL UNIQUE,
-        scenario_id TEXT NOT NULL,
-        step_id TEXT NOT NULL,
-        agent_id TEXT,
-        proposal_type TEXT NOT NULL,
-        severity TEXT NOT NULL,
-        status TEXT NOT NULL,
-        recommendation TEXT NOT NULL,
-        patch_kind TEXT NOT NULL,
-        target TEXT,
-        patch_content TEXT,
-        metadata TEXT,
-        created_at TEXT NOT NULL,
-        approved_at TEXT,
-        applied_at TEXT,
-        rejected_at TEXT
-      );
-
-      CREATE TABLE IF NOT EXISTS p2_scenario_drafts (
-        draft_id TEXT PRIMARY KEY,
-        scenario_id TEXT NOT NULL UNIQUE,
-        name TEXT NOT NULL,
-        description TEXT,
-        contract_json TEXT NOT NULL,
-        gap_type TEXT NOT NULL,
-        gap_evidence TEXT,
-        status TEXT NOT NULL DEFAULT 'pending',
-        reviewed_by TEXT,
-        reviewed_at TEXT,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS p2_healing_actions (
-        action_id TEXT PRIMARY KEY,
-        action_type TEXT NOT NULL,
-        target TEXT NOT NULL,
-        reason TEXT NOT NULL,
-        automatic INTEGER NOT NULL,
-        status TEXT NOT NULL,
-        metadata TEXT,
-        created_at TEXT NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS p2_governance_decisions (
-        decision_id TEXT PRIMARY KEY,
-        subject_type TEXT NOT NULL,
-        subject_id TEXT NOT NULL,
-        action TEXT NOT NULL,
-        verdict TEXT NOT NULL,
-        reason TEXT NOT NULL,
-        actor TEXT,
-        requirements TEXT,
-        metadata TEXT,
-        created_at TEXT NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS p2_l5_materializations (
-        materialization_id TEXT PRIMARY KEY,
-        subject_type TEXT NOT NULL,
-        subject_id TEXT NOT NULL,
-        kind TEXT NOT NULL,
-        status TEXT NOT NULL,
-        file_path TEXT NOT NULL,
-        checksum TEXT NOT NULL,
-        metadata TEXT,
-        created_at TEXT NOT NULL,
-        rolled_back_at TEXT,
-        UNIQUE(subject_type, subject_id, kind, file_path)
-      );
-
-      CREATE TABLE IF NOT EXISTS p2_l5_closed_loop_runs (
-        loop_id TEXT PRIMARY KEY,
-        status TEXT NOT NULL,
-        mode TEXT NOT NULL,
-        scenario_id TEXT,
-        queued_scenarios TEXT NOT NULL,
-        actions_json TEXT NOT NULL,
-        verification_json TEXT NOT NULL,
-        summary_json TEXT NOT NULL,
-        metadata TEXT,
-        started_at TEXT NOT NULL,
-        completed_at TEXT NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS p2_l5_independent_audit_reviews (
-        review_id TEXT PRIMARY KEY,
-        run_id TEXT NOT NULL,
-        status TEXT NOT NULL,
-        actor TEXT,
-        reason TEXT,
-        metadata TEXT,
-        created_at TEXT NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS p2_knowledge_promotion_events (
-        event_id TEXT PRIMARY KEY,
-        source_run_id TEXT NOT NULL,
-        candidate_id TEXT NOT NULL,
-        candidate_version TEXT NOT NULL,
-        subject_type TEXT NOT NULL,
-        subject_id TEXT NOT NULL,
-        promotion_type TEXT NOT NULL,
-        action TEXT NOT NULL,
-        status TEXT NOT NULL,
-        actor TEXT,
-        reason TEXT,
-        target TEXT,
-        result_json TEXT,
-        metadata TEXT,
-        created_at TEXT NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS p2_l5_learning_signals (
-        signal_id TEXT PRIMARY KEY,
-        source_type TEXT NOT NULL,
-        source_id TEXT NOT NULL,
-        signal_type TEXT NOT NULL,
-        source_run_id TEXT,
-        subject_type TEXT,
-        subject_id TEXT,
-        scenario_id TEXT,
-        step_id TEXT,
-        agent_id TEXT,
-        version TEXT NOT NULL,
-        confidence REAL NOT NULL,
-        status TEXT NOT NULL,
-        summary TEXT NOT NULL,
-        evidence TEXT,
-        metadata TEXT,
-        created_at TEXT NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS p2_tool_ledger_closures (
-        session_id TEXT NOT NULL REFERENCES p2_sessions(session_id),
-        tool_call_id TEXT NOT NULL,
-        tool_name TEXT NOT NULL,
-        reason TEXT NOT NULL,
-        closed_at TEXT NOT NULL,
-        original_started_at TEXT NOT NULL,
-        PRIMARY KEY(session_id, tool_call_id)
-      );
-
-      CREATE INDEX IF NOT EXISTS idx_p2_sessions_scenario ON p2_sessions(scenario_id);
-      CREATE INDEX IF NOT EXISTS idx_p2_events_session_sequence ON p2_session_events(session_id, sequence);
-      CREATE INDEX IF NOT EXISTS idx_p2_findings_session_created ON p2_session_findings(session_id, created_at);
-      CREATE INDEX IF NOT EXISTS idx_p2_step_perf_step ON p2_step_performance(scenario_id, step_id, created_at);
-      CREATE INDEX IF NOT EXISTS idx_p2_adaptations_step ON p2_adaptation_events(scenario_id, step_id, timestamp);
-      CREATE INDEX IF NOT EXISTS idx_p2_learning_proposals_status ON p2_learning_proposals(status, scenario_id);
-      CREATE INDEX IF NOT EXISTS idx_p2_scenario_drafts_status ON p2_scenario_drafts(status, created_at);
-      CREATE INDEX IF NOT EXISTS idx_p2_healing_actions_created ON p2_healing_actions(created_at);
-      CREATE INDEX IF NOT EXISTS idx_p2_governance_subject ON p2_governance_decisions(subject_type, subject_id, created_at);
-      CREATE INDEX IF NOT EXISTS idx_p2_l5_materializations_subject ON p2_l5_materializations(subject_type, subject_id, created_at);
-      CREATE INDEX IF NOT EXISTS idx_p2_l5_closed_loop_status ON p2_l5_closed_loop_runs(status, scenario_id, completed_at);
-      CREATE INDEX IF NOT EXISTS idx_p2_l5_independent_audit_reviews_run ON p2_l5_independent_audit_reviews(run_id, created_at);
-      CREATE INDEX IF NOT EXISTS idx_p2_knowledge_promotion_events_run ON p2_knowledge_promotion_events(source_run_id, created_at);
-      CREATE INDEX IF NOT EXISTS idx_p2_knowledge_promotion_events_subject ON p2_knowledge_promotion_events(subject_type, subject_id, created_at);
-      CREATE INDEX IF NOT EXISTS idx_p2_l5_learning_signals_scope ON p2_l5_learning_signals(status, signal_type, scenario_id, step_id, agent_id, created_at);
-      CREATE INDEX IF NOT EXISTS idx_p2_l5_learning_signals_source ON p2_l5_learning_signals(source_type, source_id, created_at);
-      CREATE INDEX IF NOT EXISTS idx_p2_l5_learning_signals_subject ON p2_l5_learning_signals(subject_type, subject_id, created_at);
-      CREATE INDEX IF NOT EXISTS idx_p2_tool_ledger_closures_session ON p2_tool_ledger_closures(session_id, closed_at);
-    `)
+/**
+ * B-09: one stored row with invalid JSON used to make every read of its session throw, and with it
+ * getAllSessions, the runner and the stats (HTTP 500). The bad value is now reported in place.
+ */
+function parseStoredJson(text: string): unknown {
+  try {
+    return JSON.parse(text)
+  } catch {
+    return { unreadable: true, reason: 'stored JSON could not be parsed', length: text.length }
   }
 }
 

@@ -4,7 +4,7 @@ Everything the platform writes goes into one directory inside the target reposit
 
 Rule of thumb:
 
-- A file whose name contains **`.generated.`** belongs to discovery. `discover-local` deletes and rewrites these files on every run. Do not hand-edit them. To change them, change the source repository and run discovery again, or copy the file to a name without `.generated.` (see [Customizing](#customizing)).
+- A file whose name contains **`.generated.`** belongs to discovery. `discover-local` deletes and rewrites these files on every run. Do not hand-edit them. It only touches real files and folders inside `.agentic-qa/`: if a folder or a generated file there is a symlink, discovery stops with `local_confinement_refused` and writes nothing through it. To change them, change the source repository and run discovery again, or copy the file to a name without `.generated.` (see [Customizing](#customizing)).
 - Everything else is either runtime code (copied from the template) or runtime state (database, screenshots, settings).
 
 ## `install-local`
@@ -15,16 +15,16 @@ Source: `packages/dashboard-api/src/services/local-package-installer.ts`.
 | --- | --- | --- |
 | `AGENTIC.md`, `README.md` | Runtime agent rules (loaded as the global prompt layer) and the runtime README. | Rarely. `AGENTIC.md` changes agent behavior for every run. |
 | `package.json`, `package-lock.json`, `.npmrc` | Runtime package manifest. The installer sets `engines.node` to `>=22.5.0` and `legacy-peer-deps=true`. | No |
-| `packages/api/` | Fastify API and phase 2 runtime source (`src/`, `package.json`, `tsconfig.json`, `drizzle.config.ts`). The installer patches a few source files for the host-local layout. | No. Change the template in this repository instead. |
+| `packages/api/` | Fastify API and phase 2 runtime source (`src/`, `package.json`, `tsconfig.json`, `drizzle.config.ts`). Installed exactly as in the template; a regression test compares the installed source with the template byte for byte. | No. Change the template in this repository instead. |
 | `packages/web/` | React dashboard source. | No |
 | `vendor/better-sqlite3-shim/` | Small `better-sqlite3`-compatible shim over Node's built-in `node:sqlite`, so the runtime needs no native build. | No |
 | `scripts/start-local-dashboard.generated.sh` | Launcher. Installs dependencies on first run, installs Playwright Chromium for frontend repositories, loads `.env.local`, starts the API on `127.0.0.1` and the dashboard. Defaults: API port `3201`, web port `5176` (`--api-port`, `--web-port`). | No |
-| `adapter/config/install-metadata.generated.json` | Install time, template source, mode (`host-local-runtime`), ports, and the result of API key validation. Contains no secret. | No |
+| `adapter/config/install-metadata.generated.json` | Install time, template version (`templateVersion`) and source, mode (`host-local-runtime`), ports, and the result of API key validation, and `lastUpgrade` after an `upgrade-local`. Contains no secret. `discover-local` keeps it. | No |
 | `.env.example` | Empty `ANTHROPIC_API_KEY=` and `OPENAI_API_KEY=` entries. | Copy to `.env.local` if you want to set keys by hand. |
-| `.env.local` | Written only if the installer resolved a provider key, with file mode `0600`. **Contains a secret.** | Yes, but never commit it. |
-| `.gitignore` | Ignores `.env.local`, `node_modules/`, `data/`, SQLite files, `packages/web/dist/`, and `packages/api/artifacts/`, so the host repository can commit `.agentic-qa/` without secrets or local state. | Optional |
+| `.env.local` | Provider keys, file mode `0600`. On reinstall the existing file is merged: your variables, comments and keys stay as they are, and a provider key is added only when it is missing; lines that are not assignments are dropped. The launcher loads only `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` from it; other variables kept here are not exported to the runtime. A key in this file with characters the launcher refuses counts as missing: it is replaced and listed in `envLocalReplacedKeys`. A key with unsafe characters from another source (the platform `.env.local` or the environment) stops the install before anything is written, and the error names that source. **Contains a secret.** | Yes, but never commit it. |
+| `.gitignore` | Ignores `.env.local`, `node_modules/`, `data/`, SQLite files and `upgrade-local` backups, `packages/web/dist/`, and the run artifacts in `artifacts/` and `packages/api/artifacts/`, so the host repository can commit `.agentic-qa/` without secrets or local state. | Optional |
 | `docs/README.md` | Short generated note about the installed runtime. | Optional |
-| `adapter/<area>/`, `data/`, `packages/api/artifacts/` | Empty directories that discovery and the runtime fill. | — |
+| `adapter/<area>/`, `data/`, `packages/api/artifacts/` | Empty directories that discovery and the runtime fill. Under the launcher the runtime writes its artifacts to `artifacts/` instead (see Runtime state). | — |
 
 The installer never edits the target repository's own `.gitignore`. Instead it writes `.agentic-qa/.gitignore` (above), which keeps the secret, the database, dependencies, and run artifacts out of git. Ignoring the whole `.agentic-qa/` directory is also fine if you do not want to share reviewed scenarios.
 
@@ -55,9 +55,10 @@ Written while the runtime runs. All of it is local state; none of it should be c
 
 | Path | What it is |
 | --- | --- |
-| `persona-qa.db` (plus `-wal`/`-shm`) | SQLite session store: sessions, steps, events, findings, verdicts, L4/L5 records. Created in the API working directory, which is `.agentic-qa/` when you use the launcher. Override with `DATABASE_URL`. |
-| `packages/api/artifacts/screenshots/<sessionId>/` | Screenshots captured as evidence. |
+| `persona-qa.db` (plus `-wal`/`-shm`) | SQLite session store: sessions, steps, events, findings, verdicts, L4/L5 records. Created in the API working directory, which is `.agentic-qa/` when you use the launcher. Override with `DATABASE_URL`. Its schema is versioned (`schema_migrations`); `upgrade-local` applies pending migrations after copying it to `persona-qa.db.pre-upgrade-<timestamp>.bak`. |
+| `artifacts/screenshots/<sessionId>/` | Screenshots captured as evidence, under `PHASE2_ARTIFACT_DIR`, which defaults to `artifacts/` in the API working directory: `.agentic-qa/artifacts/` when you use the launcher, `packages/api/artifacts/` when you start the API from that directory. L5 records go to `artifacts/l5/`. Both locations are gitignored. |
 | `data/runtime-settings.json` | Provider and model selected in the dashboard settings page. |
+| `data/runtime-api.token` | Local API token, created on first start (mode `0600`). **Secret**: every API request except `GET /health` needs it, and `data/` is gitignored. Delete it to rotate; the next start creates a new one. |
 | `adapter/scenarios/scenarios.promoted.json` | Scenarios promoted by the L5 loop after governance approval. Review it like any other scenario file. |
 
 ## Customizing

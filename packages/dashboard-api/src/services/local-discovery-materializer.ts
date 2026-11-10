@@ -13,6 +13,7 @@ import type {
   ScenarioCandidate,
 } from '../../../host-sdk/src/domain-discovery-contracts.ts'
 import { buildCodeGraph } from './code-graph-builder.ts'
+import { ConfinedLocalFs } from './confined-local-fs.ts'
 
 type NormalizedStep = string
 
@@ -316,49 +317,6 @@ async function readTextIfExists(filePath: string) {
     return await fs.readFile(filePath, 'utf8')
   } catch {
     return null
-  }
-}
-
-async function copyFileIfExists(sourcePath: string, targetPath: string) {
-  try {
-    await fs.mkdir(path.dirname(targetPath), { recursive: true })
-    await fs.copyFile(sourcePath, targetPath)
-    return true
-  } catch {
-    return false
-  }
-}
-
-async function copyDirRecursiveIfExists(sourceDir: string, targetDir: string): Promise<string[]> {
-  const copied: string[] = []
-  try {
-    const entries = await fs.readdir(sourceDir, { withFileTypes: true })
-    await fs.mkdir(targetDir, { recursive: true })
-    for (const entry of entries) {
-      const sourcePath = path.join(sourceDir, entry.name)
-      const targetPath = path.join(targetDir, entry.name)
-      if (entry.isDirectory()) {
-        copied.push(...await copyDirRecursiveIfExists(sourcePath, targetPath))
-      } else if (entry.isFile()) {
-        await fs.copyFile(sourcePath, targetPath)
-        copied.push(targetPath)
-      }
-    }
-  } catch {
-    return copied
-  }
-  return copied
-}
-
-async function removeGeneratedFilesIfExists(directory: string) {
-  try {
-    const entries = await fs.readdir(directory, { withFileTypes: true })
-    await Promise.all(entries.map(async (entry) => {
-      if (!entry.isFile() || !entry.name.includes('.generated.')) return
-      await fs.rm(path.join(directory, entry.name), { force: true })
-    }))
-  } catch {
-    return
   }
 }
 
@@ -1050,10 +1008,12 @@ export async function switchHostRole() {
 `
 }
 
-function buildCapabilityRuntimeStub(capabilities: MaterializedCapability[]) {
+export function buildCapabilityRuntimeStub(capabilities: MaterializedCapability[]) {
   const handlers = capabilities
+    // S-11: the message carries target-controlled text (routes, file names, URLs). It is emitted as a
+    // JSON string literal, so no quote or backtick in that text can become code.
     .map((capability) => `  ${JSON.stringify(capability.id)}: async () => {
-    throw new Error('TODO: implement ${capability.id}${capability.routeHint ? ` using route ${capability.routeHint}` : ''}${formatCapabilityGraphHintMessage(capability)}.')
+    throw new Error(${JSON.stringify(`TODO: implement ${capability.id}${capability.routeHint ? ` using route ${capability.routeHint}` : ''}${formatCapabilityGraphHintMessage(capability)}.`)})
   },`)
     .join('\n')
 
@@ -1200,6 +1160,11 @@ export async function materializeLocalDiscovery(input: {
 }) {
   const localRoot = path.join(input.repoPath, '.agentic-qa')
   const adapterRoot = path.join(localRoot, 'adapter')
+  // All IO under .agentic-qa goes through the confined helper, which works on the real repository
+  // path and refuses symlinks (S-02). Paths returned to callers keep the caller's spelling.
+  const confined = await ConfinedLocalFs.open(input.repoPath)
+  const realPath = (displayPath: string) => path.join(confined.localRoot, path.relative(localRoot, displayPath))
+  const displayPath = (relativeToLocalRoot: string) => path.join(localRoot, relativeToLocalRoot)
   const hostId = inferTargetId(input.repoPath)
   const normalizedReport = normalizeReport(input.report)
   const normalizedDraft = buildNormalizedDraft(normalizedReport, input.draft)
@@ -1277,18 +1242,21 @@ export async function materializeLocalDiscovery(input: {
     })),
   }))
 
-  await Promise.all([
-    removeGeneratedFilesIfExists(path.join(adapterRoot, 'manifest')),
-    removeGeneratedFilesIfExists(path.join(adapterRoot, 'auth')),
-    removeGeneratedFilesIfExists(path.join(adapterRoot, 'routes')),
-    removeGeneratedFilesIfExists(path.join(adapterRoot, 'capabilities')),
-    removeGeneratedFilesIfExists(path.join(adapterRoot, 'personas')),
-    removeGeneratedFilesIfExists(path.join(adapterRoot, 'scenarios')),
-    removeGeneratedFilesIfExists(path.join(adapterRoot, 'config')),
-    removeGeneratedFilesIfExists(path.join(adapterRoot, 'runtime')),
-    removeGeneratedFilesIfExists(path.join(adapterRoot, 'assertions')),
-    removeGeneratedFilesIfExists(path.join(adapterRoot, 'workflow-contracts')),
-  ])
+  for (const folder of [
+    'manifest',
+    'auth',
+    'routes',
+    'capabilities',
+    'personas',
+    'scenarios',
+    'config',
+    'runtime',
+    'assertions',
+    'workflow-contracts',
+  ]) {
+    // B-10: install-metadata.generated.json is written by install-local, not by discovery; keep it.
+    await confined.removeFilesContaining(realPath(path.join(adapterRoot, folder)), '.generated.', ['install-metadata.generated.json'])
+  }
 
   const outputFiles: Array<readonly [string, unknown]> = [
     [path.join(adapterRoot, 'manifest', 'adapter-manifest.generated.json'), manifest],
@@ -1311,8 +1279,7 @@ export async function materializeLocalDiscovery(input: {
 
   const writtenFiles: string[] = []
   for (const [filePath, payload] of outputFiles) {
-    await fs.mkdir(path.dirname(filePath), { recursive: true })
-    await fs.writeFile(filePath, JSON.stringify(payload, null, 2), 'utf8')
+    await confined.writeFile(realPath(filePath), JSON.stringify(payload, null, 2))
     writtenFiles.push(filePath)
   }
 
@@ -1324,40 +1291,37 @@ export async function materializeLocalDiscovery(input: {
   ]
 
   for (const [filePath, content] of runtimeFiles) {
-    await fs.mkdir(path.dirname(filePath), { recursive: true })
-    await fs.writeFile(filePath, content, 'utf8')
+    await confined.writeFile(realPath(filePath), content)
     writtenFiles.push(filePath)
   }
 
   const referenceBridgePath = path.join(adapterRoot, 'runtime', 'reference-bridge.generated.json')
-  await fs.writeFile(referenceBridgePath, JSON.stringify(referenceBridge, null, 2), 'utf8')
+  await confined.writeFile(realPath(referenceBridgePath), JSON.stringify(referenceBridge, null, 2))
   writtenFiles.push(referenceBridgePath)
 
-  const snapshotRoot = path.join(adapterRoot, 'runtime', 'host-source-snapshot')
-  const supportSource = path.join(input.repoPath, 'integration-test', 'persona-tests', 'support')
-  const supportTarget = path.join(snapshotRoot, 'integration-test', 'persona-tests', 'support')
-  writtenFiles.push(...await copyDirRecursiveIfExists(supportSource, supportTarget))
-
-  const personaUtilsSource = path.join(input.repoPath, 'integration-test', 'persona-tests', 'utils')
-  const personaUtilsTarget = path.join(snapshotRoot, 'integration-test', 'persona-tests', 'utils')
-  writtenFiles.push(...await copyDirRecursiveIfExists(personaUtilsSource, personaUtilsTarget))
-
-  const integrationUtilsSource = path.join(input.repoPath, 'integration-test', 'utils')
-  const integrationUtilsTarget = path.join(snapshotRoot, 'integration-test', 'utils')
-  writtenFiles.push(...await copyDirRecursiveIfExists(integrationUtilsSource, integrationUtilsTarget))
+  // Host source snapshot: copied without following symlinks on either side, and only from inside
+  // the real repository.
+  const snapshotRoot = path.join('adapter', 'runtime', 'host-source-snapshot')
+  for (const sourceFolder of [
+    path.join('integration-test', 'persona-tests', 'support'),
+    path.join('integration-test', 'persona-tests', 'utils'),
+    path.join('integration-test', 'utils'),
+  ]) {
+    const copied = await confined.copyTreeFromRepo(sourceFolder, path.join(snapshotRoot, sourceFolder))
+    writtenFiles.push(...copied.map(displayPath))
+  }
 
   const workflowIndex = workflowContracts.map((contract) => ({
     scenarioId: contract.scenarioId,
     file: path.join('workflow-contracts', contract.scenarioId + '.generated.yaml'),
   }))
   const workflowIndexPath = path.join(adapterRoot, 'workflow-contracts', 'index.generated.json')
-  await fs.mkdir(path.dirname(workflowIndexPath), { recursive: true })
-  await fs.writeFile(workflowIndexPath, JSON.stringify(workflowIndex, null, 2), 'utf8')
+  await confined.writeFile(realPath(workflowIndexPath), JSON.stringify(workflowIndex, null, 2))
   writtenFiles.push(workflowIndexPath)
 
   for (const contract of workflowContracts) {
     const filePath = path.join(adapterRoot, 'workflow-contracts', contract.scenarioId + '.generated.yaml')
-    await fs.writeFile(filePath, toYaml(contract) + '\n', 'utf8')
+    await confined.writeFile(realPath(filePath), toYaml(contract) + '\n')
     writtenFiles.push(filePath)
   }
 

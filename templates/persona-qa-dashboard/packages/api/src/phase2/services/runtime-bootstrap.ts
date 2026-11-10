@@ -16,6 +16,7 @@ import { SessionService } from './session-service.js'
 import { getSessionService, setSessionService } from '../routes/sessions.js'
 import { ToolRegistry } from './tool-registry.js'
 import { registerEvidenceTools } from '../tools/evidence-tools.js'
+import { registerFindingTools } from '../tools/finding-tools.js'
 import { registerGeneratedAdapterTools } from '../tools/generated-adapter-tools.js'
 import { registerWorkflowTools } from '../tools/workflow-tools.js'
 import type { ModelProvider } from '../types/agent-types.js'
@@ -50,6 +51,7 @@ export function createPhase2Runtime(options: Phase2RuntimeOptions = {}) {
     registerWorkflowTools(toolRegistry)
   }
   registerEvidenceTools(toolRegistry, sessionService)
+  registerFindingTools(toolRegistry)
   registerGeneratedAdapterTools(toolRegistry)
 
   const profiles = listProfiles()

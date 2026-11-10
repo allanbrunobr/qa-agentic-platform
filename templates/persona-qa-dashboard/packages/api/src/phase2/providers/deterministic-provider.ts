@@ -5,6 +5,7 @@ import type {
   ModelResponse,
   ToolDefinition,
 } from '../types/agent-types.js'
+import { parseStepEnvelope } from '../services/step-envelope.js'
 
 const STEP_TOOL_MAP: Record<string, string> = {
   open_primary_route: 'openPrimaryRoute',
@@ -135,12 +136,8 @@ function extractStepEnvelope(messages: ModelMessage[]): StepEnvelope | undefined
   for (const message of messages) {
     if (message.role !== 'user') continue
 
-    try {
-      const parsed = JSON.parse(message.content) as StepEnvelope
-      if (parsed && typeof parsed === 'object') return parsed
-    } catch {
-      continue
-    }
+    const parsed = parseStepEnvelope(message.content)
+    if (parsed) return parsed as StepEnvelope
   }
 
   return undefined
