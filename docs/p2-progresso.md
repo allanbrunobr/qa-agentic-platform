@@ -1336,3 +1336,16 @@ Nenhum dos 12 achados da rodada 1 voltou. Os 6 vivos são novos.
   ferramentas de suporte, com custo de uma chamada de modelo por passo.
 - Dependabot para manter os SHAs das actions atualizados (abriria PRs no repositório).
 - A-04, A-05, M-03 (legado, arquivos-deus, nomes antigos): recomendação de PR própria.
+
+## `pre-pr-contradicoes` (rodada 3, `0e5a3f9`): 4 vivos, 8 refutados — corrigidos
+
+A lista vem encolhendo: 12 achados na rodada 1, 6 na 2, 4 na 3. Nenhum achado das rodadas
+anteriores voltou.
+
+| Achado | Correção | Teste (falhou antes) |
+|---|---|---|
+| #1 Em alvo de API/CLI (perfil sem navegador), o passo oferecia `captureScreenshot`/`collectDomSnippet`, que o registro depois recusava | Uma ferramenta de suporte que exige navegador só é oferecida a um perfil com `browserAccess` | `report-finding.test.ts`: perfil sem navegador recebe só a capability e o `reportFinding`. Com o runtime anterior, recebia as duas ferramentas de navegador |
+| #2, #3 O instalador considerava "mantida" uma chave escrita como `export ANTHROPIC_API_KEY="…"` ou `ANTHROPIC_API_KEY='…'`, mas o loader do launcher ignora a primeira e recusa a segunda: o runtime subia sem a chave | A chave de provedor mantida é regravada no único formato que o loader lê (`KEY="valor"`). Um valor que o loader recusaria conta como ausente, e a chave resolvida entra | `testKeptKeyIsReadByLauncher` roda o `load-env.generated.mjs` real sobre o arquivo mesclado nos três casos. Com o instalador anterior, os três falham |
+| #4 Nenhum teste cobria a ordem que a descrição do `reportFinding` prescreve num passo que declara artefato | Teste novo: screenshot numa resposta e, na seguinte, a ação junto com o `reportFinding` → achado gravado com a evidência, passo concluído em 2 chamadas | Cobertura do comportamento atual (passa antes e depois) |
+
+**Verificação (rodada 3):** `audit:deps` 0; `lint` 0; `typecheck` 0; `npm test` 0 (API 485, rotas `node:test` 27, web 121); `verify:release` 0; `test:e2e` 0.

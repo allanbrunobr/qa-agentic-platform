@@ -261,6 +261,14 @@ function parseUserEnvLines(text: string): { lines: string[]; values: Record<stri
     // An empty provider key (copied from .env.example, say) counts as missing, so a resolved key replaces it.
     if (value === '' && (match[1] === 'ANTHROPIC_API_KEY' || match[1] === 'OPENAI_API_KEY')) continue
     if (match[1]! in values) continue
+    if (match[1] === 'ANTHROPIC_API_KEY' || match[1] === 'OPENAI_API_KEY') {
+      // Kept in the one form the launcher's loader reads (KEY="value", no export, no single quotes).
+      // A value the loader would refuse counts as missing, so a resolved key replaces it.
+      if (unsafeEnvKey(match[1], value)) continue
+      values[match[1]] = value
+      lines.push(`${match[1]}="${value}"`)
+      continue
+    }
     values[match[1]!] = value
     lines.push(line)
   }

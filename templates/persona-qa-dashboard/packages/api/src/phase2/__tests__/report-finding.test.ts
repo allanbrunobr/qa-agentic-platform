@@ -163,6 +163,46 @@ describe('reportFinding', () => {
     expect(result.output).toEqual({ artifactId: 'shot-1' })
   })
 
+  // Third pre-PR run, finding #4: the order the reportFinding description prescribes, in a step that
+  // declares an artifact (every step discovery generates does): screenshot first, then the action and
+  // the finding in the same response.
+  it('records a finding in the prescribed order when the step declares an artifact', async () => {
+    const { runtime, provider, sessionService, sessionId } = setup([
+      call('b', 'captureScreenshot', { description: 'cart before checkout' }),
+      { text: '', toolCalls: [{ id: 'a', name: 'submitOrder', input: {} }, { id: 'c', name: 'reportFinding', input: finding(['shot-1']) }], stopReason: 'tool_use' },
+      end,
+    ])
+    const declaring = { ...STEP, producedArtifacts: ['orderSubmitted'] }
+    const result = await runtime.executeStep('shopper', declaring, { sessionId })
+
+    expect(result.status).toBe('completed')
+    expect(vi.mocked(provider.chat).mock.calls).toHaveLength(2)
+    expect(result.findings).toHaveLength(1)
+    expect(sessionService.getSession(sessionId)?.findings[0]?.evidence).toEqual(['shot-1'])
+  })
+
+  // Third pre-PR run, finding #1: a profile without browser access (API or CLI target) is not offered
+  // browser tools it would then be refused.
+  it('offers no browser support tools to a profile without browser access', async () => {
+    const registry = new ToolRegistry()
+    registry.register('callHealthEndpoint', async () => ({ ok: true, output: { health: 'ok' } }), {
+      name: 'callHealthEndpoint', description: 'health', requiresBrowser: false, tags: [],
+    })
+    registry.register('captureScreenshot', async () => ({ ok: true, output: { artifactId: 'shot-1' } }), {
+      name: 'captureScreenshot', description: 'screenshot', requiresBrowser: true, tags: [],
+    })
+    registerFindingTools(registry)
+    const provider: ModelProvider = { chat: vi.fn(async () => end) }
+    const runtime = new AgentRuntime(provider, registry, createSessionServiceStub())
+    runtime.registerAgent({ ...profile(false), toolPolicy: { browserAccess: false, allowedTools: ['callHealthEndpoint'] } })
+    const apiStep = { ...STEP, id: 'health', capabilityId: 'callHealthEndpoint' }
+
+    await runtime.executeStep('shopper', apiStep, { sessionId: 'api-session' })
+
+    const offered = (vi.mocked(provider.chat).mock.calls[0]?.[1] ?? []).map((tool) => tool.name).sort()
+    expect(offered).toEqual(['callHealthEndpoint', 'reportFinding'])
+  })
+
   it('is registered by the runtime bootstrap', () => {
     const runtime = createPhase2Runtime({ deterministic: true, dbPath: ':memory:' } as never)
     expect(runtime.toolRegistry.has('reportFinding')).toBe(true)

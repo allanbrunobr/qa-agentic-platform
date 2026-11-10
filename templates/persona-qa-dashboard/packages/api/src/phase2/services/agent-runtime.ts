@@ -953,7 +953,12 @@ export class AgentRuntime {
 
     // The step's capability, plus the support tools a step needs to report what it saw: a screenshot
     // as evidence and reportFinding (B-04). Neither performs the step.
-    const supportTools = Array.from(STEP_SUPPORT_TOOLS).filter((tool) => this.toolRegistry?.has(tool))
+    // A browser tool is not offered to a profile without browser access (an API or CLI target): the
+    // registry would refuse it anyway.
+    const supportTools = Array.from(STEP_SUPPORT_TOOLS).filter((tool) => {
+      const metadata = this.toolRegistry?.getMetadata(tool)
+      return Boolean(metadata) && (!metadata!.requiresBrowser || profile.toolPolicy.browserAccess)
+    })
     return {
       ...profile,
       toolPolicy: {

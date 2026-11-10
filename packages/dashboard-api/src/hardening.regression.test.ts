@@ -797,6 +797,45 @@ async function testLauncherReinstallsDepsWhenLockChanges() {
   }
 }
 
+/**
+ * Third pre-PR run, findings #2/#3: a key the installer keeps must be one the launcher's loader can
+ * read, or the runtime starts without it while the install reports it as kept.
+ */
+async function testKeptKeyIsReadByLauncher() {
+  const keys = ['ANTHROPIC_API_KEY_OVERRIDE', 'OPENAI_API_KEY_OVERRIDE', 'AGENTIC_QA_SKIP_KEY_VALIDATION']
+  const savedEnv = Object.fromEntries(keys.map((key) => [key, process.env[key]]))
+  process.env.AGENTIC_QA_SKIP_KEY_VALIDATION = '1'
+  process.env.ANTHROPIC_API_KEY_OVERRIDE = ''
+  process.env.OPENAI_API_KEY_OVERRIDE = ''
+  const repo = await mkdtemp(path.join(tmpdir(), 'agentic-kept-key-'))
+  try {
+    await installLocalPackage({ repoPath: repo })
+    const root = path.join(repo, '.agentic-qa')
+    const envPath = path.join(root, '.env.local')
+    const loader = path.join(root, 'scripts', 'load-env.generated.mjs')
+    process.env.ANTHROPIC_API_KEY_OVERRIDE = 'sk-ant-from-install'
+    for (const [label, line, expected] of [
+      ['export prefix', 'export ANTHROPIC_API_KEY="sk-ant-user123"', 'sk-ant-user123'],
+      ['single quotes', "ANTHROPIC_API_KEY='sk-ant-user456'", 'sk-ant-user456'],
+      ['a value the loader refuses', 'ANTHROPIC_API_KEY="has spaces and !"', 'sk-ant-from-install'],
+    ] as const) {
+      await writeFile(envPath, `${line}\n`)
+      await installLocalPackage({ repoPath: repo })
+      const loaded = spawnSync(process.execPath, [loader, envPath], { encoding: 'utf8' })
+      assert(
+        loaded.status === 0 && loaded.stdout.includes(`export ANTHROPIC_API_KEY='${expected}'`),
+        `${label}: the key in effect after reinstall is the one the launcher loads (${expected}; got ${JSON.stringify(loaded.stdout.trim() || loaded.stderr.trim())})`,
+      )
+    }
+  } finally {
+    for (const key of keys) {
+      if (savedEnv[key] === undefined) delete process.env[key]
+      else process.env[key] = savedEnv[key]
+    }
+    await rm(repo, { recursive: true, force: true })
+  }
+}
+
 /** B-10: discover-local cleared every *.generated.* file in adapter/config, the install metadata too. */
 async function testDiscoveryKeepsInstallMetadata() {
   const keys = ['ANTHROPIC_API_KEY_OVERRIDE', 'OPENAI_API_KEY_OVERRIDE', 'AGENTIC_QA_SKIP_KEY_VALIDATION']
@@ -835,6 +874,7 @@ await testInstalledSourceMatchesTemplate()
 await testDiscoveryKeepsInstallMetadata()
 await testReinstallMergesEnvLocal()
 await testLauncherReinstallsDepsWhenLockChanges()
+await testKeptKeyIsReadByLauncher()
 if (failed > 0) {
   console.error(`\n${failed} hardening check(s) failed`)
   process.exit(1)
