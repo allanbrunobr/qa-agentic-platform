@@ -55,6 +55,7 @@ const END_MARKER = 'END_EXTERNAL_UNTRUSTED_CONTENT';
  */
 function neutralizeSyntacticMarkers(text: string): string {
   // Strip hidden characters before the marker regex so they cannot open a gap.
+  // eslint-disable-next-line no-control-regex -- removing control characters is the point of this regex
   let cleaned = text.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F\u200B-\u200D\uFEFF]/g, '');
 
   // Stronger syntactic masking / Content Injection defense (expanded from .specs/agent-security/)

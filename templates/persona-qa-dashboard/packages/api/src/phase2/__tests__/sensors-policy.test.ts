@@ -5,9 +5,7 @@ import { timeoutSensor } from '../sensors/timeout-sensor.js';
 import { SensorRunner, type SensorContext } from '../services/sensor-runner.js';
 import { schemaSensor } from '../sensors/schema-sensor.js';
 import { outputSensor } from '../sensors/output-sensor.js';
-import type { ScenarioStep, ScenarioContract } from '../types/scenario-types.js';
-import type { AgentStepOutput } from '../types/agent-types.js';
-import type { Session } from '../types/session-types.js';
+import type { ScenarioStep } from '../types/scenario-types.js';
 
 function makeContext(overrides?: Partial<SensorContext>): SensorContext {
   const step: ScenarioStep = {

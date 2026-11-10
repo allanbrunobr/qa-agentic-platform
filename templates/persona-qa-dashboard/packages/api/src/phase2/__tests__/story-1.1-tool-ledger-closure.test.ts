@@ -6,8 +6,6 @@ import { ToolRegistry } from '../services/tool-registry.js'
 import type { ToolHandler, ToolMetadata } from '../types/tool-types.js'
 import type { AgentProfile, ModelProvider, ModelResponse } from '../types/agent-types.js'
 
-const echoHandler: ToolHandler = async (input) => ({ ok: true, output: input })
-
 function makeMetadata(name: string): ToolMetadata {
   return { name, description: `Tool ${name}`, requiresBrowser: false, tags: [] }
 }

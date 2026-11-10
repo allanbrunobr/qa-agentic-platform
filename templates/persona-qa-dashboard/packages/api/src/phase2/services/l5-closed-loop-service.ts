@@ -14,7 +14,6 @@ import type {
   L5LearningSignalSummary,
   LearningProposal,
   SessionService,
-  StepPerformanceRecord,
 } from './session-service.js'
 import type { Session } from '../types/session-types.js'
 

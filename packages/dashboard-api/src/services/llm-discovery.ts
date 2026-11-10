@@ -232,13 +232,13 @@ async function callAnthropic(apiKey: string, prompt: string) {
     }),
   })
 
-  const json = await response.json() as any
+  const json = await response.json() as { content?: Array<{ type?: string; text?: string }> }
   if (!response.ok) {
     throw new Error(`Anthropic discovery failed: ${response.status} ${JSON.stringify(json)}`)
   }
 
   const text = Array.isArray(json.content)
-    ? json.content.filter((item: any) => item.type === 'text').map((item: any) => item.text).join('\n')
+    ? json.content.filter((item) => item.type === "text").map((item) => item.text ?? "").join('\n')
     : ''
 
   if (!text) {

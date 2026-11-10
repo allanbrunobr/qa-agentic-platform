@@ -36,32 +36,6 @@ interface FindingJson {
   timestamp?: string;
 }
 
-interface ContextJson {
-  session_id?: string;
-  scenario_id?: string;
-  scenario_name?: string;
-  status?: 'pending' | 'running' | 'complete' | 'failed';
-  started_at?: string;
-  completed_at?: string;
-  duration_ms?: number;
-  total_tests?: number;
-  passed?: number;
-  failed?: number;
-  skipped?: number;
-  findings?: FindingJson[];
-  run_source?: string;
-  artifacts?: Record<string, unknown>;
-}
-
-interface MetadataJson {
-  run_source?: string;
-  suite_type?: string;
-  clean_db_before_run?: boolean;
-  started_by?: string;
-  scenario_id?: string;
-  session_id?: string;
-}
-
 // -----------------------------------------------------------------------
 // Zod schemas for runtime validation
 // -----------------------------------------------------------------------

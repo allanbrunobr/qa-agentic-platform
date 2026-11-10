@@ -859,17 +859,6 @@ async function waitForVisibleText(page: PageLike, selectors: string[], timeoutMs
   return null
 }
 
-async function firstUsableLocator(factories: Array<() => LocatorLike | undefined>): Promise<LocatorLike | null> {
-  for (const factory of factories) {
-    const candidate = factory()
-    const locator = candidate?.first?.() ?? candidate
-    if (!locator) continue
-    if (await locatorVisible(locator)) return locator
-  }
-
-  return null
-}
-
 async function locatorVisible(locator: LocatorLike | undefined): Promise<boolean> {
   if (!locator) return false
   try {

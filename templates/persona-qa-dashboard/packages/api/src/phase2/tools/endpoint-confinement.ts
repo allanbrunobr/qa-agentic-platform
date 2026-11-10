@@ -1,5 +1,6 @@
 import path from 'node:path'
 
+// eslint-disable-next-line no-control-regex -- control characters in an endpoint path are what this refuses
 const UNSAFE_ENDPOINT = /[\u0000-\u001F\\@]/
 
 /** Keep a package.bin script inside the repository. Absolute and `../` paths are refused. */

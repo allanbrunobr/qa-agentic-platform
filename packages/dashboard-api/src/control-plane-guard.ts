@@ -81,7 +81,8 @@ export class ControlPlaneError extends Error {
   }
 }
 
-export async function readJsonBody(request: IncomingMessage): Promise<any> {
+// The caller names the expected shape; the body is not validated here (each handler checks its fields).
+export async function readJsonBody<T = unknown>(request: IncomingMessage): Promise<T> {
   const chunks: Buffer[] = []
   let total = 0
   for await (const chunk of request) {
@@ -93,9 +94,9 @@ export async function readJsonBody(request: IncomingMessage): Promise<any> {
     chunks.push(buffer)
   }
   const text = Buffer.concat(chunks).toString('utf8')
-  if (!text) return {}
+  if (!text) return {} as T
   try {
-    return JSON.parse(text)
+    return JSON.parse(text) as T
   } catch {
     throw new ControlPlaneError(400, 'invalid_json')
   }

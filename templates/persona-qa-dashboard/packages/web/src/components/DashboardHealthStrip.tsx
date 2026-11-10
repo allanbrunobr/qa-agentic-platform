@@ -44,7 +44,7 @@ function ActiveRunAge({ startedAt }: { startedAt: string }) {
   return <span>{formatRelativeTime(startedAt)}</span>
 }
 
-export function DashboardHealthStrip({}: DashboardHealthStripProps) {
+export function DashboardHealthStrip(_props: DashboardHealthStripProps) {
   const [status, setStatus] = useState<StatusData | null>(null)
   const [apiDown, setApiDown] = useState(false)
 

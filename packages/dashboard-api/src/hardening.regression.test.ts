@@ -30,7 +30,7 @@ function assert(condition: unknown, message: string) {
   }
 }
 
-async function listen(server: { listen: Function; address: Function; close: Function }, host = '127.0.0.1') {
+async function listen(server: import("node:net").Server, host = "127.0.0.1") {
   await new Promise<void>((resolve) => server.listen(0, host, () => resolve()))
   const address = server.address()
   if (!address || typeof address === 'string') throw new Error('missing listen address')
@@ -46,7 +46,7 @@ async function freePort(): Promise<number> {
   return address.port
 }
 
-function boundAddress(server: { address: Function }) {
+function boundAddress(server: Pick<import("node:net").Server, "address">) {
   const address = server.address()
   if (!address || typeof address === 'string') throw new Error('server is not listening')
   return address as { address: string; port: number }
@@ -62,6 +62,8 @@ function testExecutionRenderingEscapes(html: string) {
   const script = html.slice(html.indexOf('<script>') + '<script>'.length, html.lastIndexOf('</script>'))
   const written: string[] = []
 
+  // A permissive fake DOM node: any property is either stored state or a callable returning another node.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the fake must accept every DOM access the page script makes
   const makeElement = (): any => {
     const state: Record<string | symbol, unknown> = {
       classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
@@ -71,7 +73,7 @@ function testExecutionRenderingEscapes(html: string) {
       textContent: '',
       children: [],
     }
-    const element: any = new Proxy(state, {
+    const element = new Proxy(state, {
       get(target, property) {
         if (property in target) return target[property]
         if (property === 'innerHTML' || property === 'outerHTML') return ''

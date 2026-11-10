@@ -22,7 +22,6 @@ export function buildDashboardHtml(input: {
   token: string
 }) {
   const API_PORT = input.apiPort
-  const WEB_PORT = input.webPort
   const DEFAULT_REPO = escapeHtmlText(input.defaultRepo)
   const CONTROL_PLANE_TOKEN_JS = JSON.stringify(input.token)
   return `<!doctype html>

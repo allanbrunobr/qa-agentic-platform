@@ -4,7 +4,7 @@ import type { SensorFn } from '../services/sensor-runner.js';
 const objectOutputSchema = z.record(z.string(), z.unknown());
 
 export const schemaSensor: SensorFn = async (context) => {
-  const { stepOutput, step } = context;
+  const { stepOutput } = context;
   const errors: string[] = [];
 
   try {

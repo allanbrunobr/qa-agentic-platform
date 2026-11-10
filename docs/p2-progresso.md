@@ -1047,3 +1047,40 @@ Testes em `phase2/__tests__/minor-security.test.ts`; os 3 casos falharam antes d
   qualquer PR.
 
 **Verificação:** `typecheck` 0; `npm test` 0 (API 477, rotas `node:test` 27, web 121); `verify:release` 0; `test:e2e` 0.
+
+# Decisões do Allan (delegadas: "tome as melhores decisões")
+
+## T-08 · Lint com ESLint — feito
+
+**O que mudou**
+
+- `eslint.config.mjs` (flat config): `@eslint/js` recomendado e `typescript-eslint` recomendado (sem
+  checagem de tipos), globais de Node e, no web do template, de browser. Nenhuma regra de
+  formatação; nada foi reformatado.
+- A única opção mexida foi a convenção de underscore no `no-unused-vars`: parâmetros e bindings com
+  `_` são intencionais. A regra continua como erro.
+- `npm run lint` (`eslint .`) cobre `packages/`, `adapters/`, `scripts/` e o template (API e web),
+  334 arquivos.
+- Medido antes de corrigir: 55 erros:
+  - 37 `no-unused-vars`, dos quais 11 eram parâmetros `_…` e o resto imports, tipos e duas funções
+    mortas (`firstUsableLocator`, `copyFileIfExists`);
+  - 9 `no-explicit-any`;
+  - 4 `no-unsafe-function-type`;
+  - 2 `no-control-regex`;
+  - 1 de cada: `no-empty-object-type`, `prefer-const` e `no-empty-pattern`.
+- Correções, só as necessárias:
+  - código morto removido;
+  - `any` e `Function` trocados por tipos;
+  - `readJsonBody` virou genérico e não devolve mais `any`, mas continua sem validar o corpo;
+  - os 2 `no-control-regex` são intencionais (regex que remove ou recusa caracteres de controle) e
+    ficaram com `eslint-disable-next-line` e motivo. Só o DOM falso do teste de escape do T-02
+    manteve um `any`, também com o motivo.
+- Checagem do instrumento: uma variável sem uso e um `any` plantados em `packages/core` fazem o
+  `npm run lint` falhar com os 2 erros.
+
+**Sobre o `ci-ok.sh`:** o hook roda `npm run lint`, `typecheck`, `test` e `build`. O `lint` agora
+existe e passa, mas a raiz **não tem script `build`**, então o hook continua reprovando. Não criei
+um `build` só para passar no hook; fica para o Allan decidir o que o build deste repositório deve
+ser (por exemplo, `vite build` do dashboard e `tsc` da API do template).
+
+**Verificação:** `lint` 0; `typecheck` 0; `npm test` 0 (API 477, rotas `node:test` 27, web 121); `verify:release` 0; `test:e2e` 0.

@@ -320,16 +320,6 @@ async function readTextIfExists(filePath: string) {
   }
 }
 
-async function copyFileIfExists(sourcePath: string, targetPath: string) {
-  try {
-    await fs.mkdir(path.dirname(targetPath), { recursive: true })
-    await fs.copyFile(sourcePath, targetPath)
-    return true
-  } catch {
-    return false
-  }
-}
-
 const LOGIN_ROUTE = /(?:^|\/)(login|sign-in|signin|log-in)(?:\/|$)/i
 
 function detectLoginRoute(report: DiscoveryReport): string | null {

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { ToolRiskLevelSchema, ToolMetadataSchema } from '../types/tool-types.js'
-import type { ToolRiskLevel, ToolHandler, ToolMetadata } from '../types/tool-types.js'
+import type { ToolHandler, ToolMetadata } from '../types/tool-types.js'
 import { ToolRegistry } from '../services/tool-registry.js'
 
 const echoHandler: ToolHandler = async (input) => ({ ok: true, output: input })
@@ -93,7 +93,7 @@ describe('Story 1.2: Classify Tools by Risk Level', () => {
     })
 
     it('mutating original object does not affect stored metadata', () => {
-      const original: any = { name: 'mutTest', description: 'test', riskLevel: 'read', requiresBrowser: false, tags: [] }
+      const original: ToolMetadata = { name: 'mutTest', description: 'test', riskLevel: 'read', requiresBrowser: false, tags: [] }
       registry.register('mutTest', echoHandler, original)
       original.riskLevel = 'destructive'
       expect(registry.getRiskLevel('mutTest')).toBe('read')
@@ -103,7 +103,7 @@ describe('Story 1.2: Classify Tools by Risk Level', () => {
       registry.register('frozenTest', echoHandler, makeMetadata({ name: 'frozenTest', riskLevel: 'read' }))
       const retrieved = registry.getMetadata('frozenTest')!
       expect(() => {
-        (retrieved as any).riskLevel = 'destructive'
+        (retrieved as { riskLevel: string }).riskLevel = 'destructive'
       }).toThrow()
       expect(registry.getRiskLevel('frozenTest')).toBe('read')
     })
@@ -112,7 +112,7 @@ describe('Story 1.2: Classify Tools by Risk Level', () => {
       registry.register('listTest', echoHandler, makeMetadata({ name: 'listTest', riskLevel: 'write' }))
       const list = registry.listTools()
       expect(() => {
-        (list[0] as any).riskLevel = 'destructive'
+        (list[0] as { riskLevel: string }).riskLevel = 'destructive'
       }).toThrow()
     })
 
