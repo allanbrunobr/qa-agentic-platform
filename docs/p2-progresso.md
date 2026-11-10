@@ -1237,3 +1237,21 @@ ser (por exemplo, `vite build` do dashboard e `tsc` da API do template).
 O workflow em si só roda no GitHub; localmente foram rodados os mesmos comandos.
 
 **Verificação:** `audit:deps` 0; `lint` 0; `typecheck` 0; `npm test` 0 (API 477, rotas `node:test` 27, web 121); `verify:release` 0; `test:e2e` 0.
+
+## Temporários da máquina · limpeza dos `agentic-platform-*` — feito
+
+- Pasta temporária desta máquina: `/var/folders/5g/xp6_rfxx3k72f2tzzdddnpqr0000gn/T`.
+- Listados: 245 diretórios `agentic-platform-*`, somando 11,81 GB (12.382.672 KB), todos diretórios
+  comuns, sem symlinks. Vieram dos cinco verificadores que vazavam fixtures antes do T-07:
+  - 71 `domain-fixtures`;
+  - 35 `generic-frontend-fixture`;
+  - 34 `generic-repository-fixtures`;
+  - 34 `generic-runtime-fixtures`;
+  - 71 `static-frontend-scanner`.
+- Antes de apagar, conferi que nenhum estava em uso: `lsof` sem nenhum arquivo aberto e `ps` sem
+  nenhum processo com esses caminhos. A checagem foi feita depois do fim do CI, que é o único que
+  cria esses diretórios.
+- Apagados com `rm -rf --` e os caminhos absolutos escritos por extenso, sem variável, em cinco
+  comandos (um por verificador), todos com saída 0.
+- Depois: 0 diretórios `agentic-platform-*` na pasta e 0 dos 245 da lista ainda existentes.
+  **Espaço liberado: 11,81 GB.**
