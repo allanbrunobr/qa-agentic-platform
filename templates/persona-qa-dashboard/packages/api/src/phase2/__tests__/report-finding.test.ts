@@ -203,6 +203,29 @@ describe('reportFinding', () => {
     expect(offered).toEqual(['callHealthEndpoint', 'reportFinding'])
   })
 
+  // Sixth pre-PR run, #1: a screenshot policy is satisfied by a screenshot, not by a DOM snippet.
+  it('refuses a finding with only DOM snippet evidence when the policy requires a screenshot', async () => {
+    const registry = new ToolRegistry()
+    registry.register('submitOrder', async () => ({ ok: true, output: { orderSubmitted: true } }), {
+      name: 'submitOrder', description: 'submit', requiresBrowser: false, tags: [],
+    })
+    registry.register('collectDomSnippet', async () => ({ ok: true, output: { artifactId: 'dom-1', selector: 'body', htmlLength: 10 } }), {
+      name: 'collectDomSnippet', description: 'dom', requiresBrowser: false, tags: [],
+    })
+    registerFindingTools(registry)
+    const sessionService = createSessionServiceStub()
+    const session = sessionService.createSession('checkout_flow')
+    const responses = [call('d', 'collectDomSnippet', { selector: 'body', description: 'cart' }), call('a', 'submitOrder'), call('c', 'reportFinding', finding(['dom-1'])), end]
+    let index = 0
+    const runtime = new AgentRuntime({ chat: vi.fn(async () => responses[index++] ?? end) }, registry, sessionService)
+    runtime.registerAgent(profile(true))
+
+    const result = await runtime.executeStep('shopper', STEP, { sessionId: session.id })
+
+    expect(result.findings).toEqual([])
+    expect(toolResults(sessionService, session.id, 'reportFinding')[0]).toEqual(expect.objectContaining({ ok: false, error: expect.objectContaining({ code: 'finding_without_evidence' }) }))
+  })
+
   it('is registered by the runtime bootstrap', () => {
     const runtime = createPhase2Runtime({ deterministic: true, dbPath: ':memory:' } as never)
     expect(runtime.toolRegistry.has('reportFinding')).toBe(true)

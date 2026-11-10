@@ -44,7 +44,8 @@ export const reportFindingMetadata: ToolMetadata = {
   name: REPORT_FINDING_TOOL,
   description: 'Record a defect you observed in the application under test. Describe what was expected and what happened. '
     + 'To attach evidence, call captureScreenshot or collectDomSnippet in an earlier response than this one and pass the artifactId it returned '
-    + 'in evidenceArtifactIds: an id exists only after that tool has run. The step ends as soon as its action produces the step artifacts, '
+    + 'in evidenceArtifactIds: an id exists only after that tool has run. If your evidence policy requires a screenshot, it must be a captureScreenshot id. '
+    + 'The step ends as soon as its action produces the step artifacts, '
     + 'so report a defect before that action, or in the same response as it.',
   inputSchema: {
     type: 'object',

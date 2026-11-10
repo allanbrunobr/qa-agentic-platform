@@ -1407,3 +1407,12 @@ pontos mais periféricos.
 - A-04, A-05 e M-03: depois do PR.
 
 **Verificação:** `audit:deps` 0; `lint` 0; `typecheck` 0; `build` 0; `npm test` 0 (API 485, rotas `node:test` 27, web 121); `verify:release` 0; `test:e2e` 0.
+
+## `pre-pr-contradicoes` (rodada 6, `abc31e0`): 2 vivos — corrigidos
+
+| Achado | Correção | Teste (falhou antes) |
+|---|---|---|
+| #1 `requireScreenshotForFinding` era satisfeita por um DOM snippet: o runtime aceitava qualquer evidência do passo | Os ids vindos de `captureScreenshot` são guardados à parte; com essa política, o achado precisa citar pelo menos um deles. A descrição do `reportFinding` diz isso | `report-finding.test.ts`: achado só com evidência de `collectDomSnippet` sob a política de screenshot → recusado (`finding_without_evidence`). Antes era gravado |
+| #2 `docs/architecture.md` ainda dizia que o control plane tem avaliador próprio e que as diferenças estão fixadas no teste de conformidade, o que deixou de valer com o A-01 | A frase descreve a situação atual: o veredito está em `contract-verdict.ts` e os limiares do gate em `quality-gate-decision.ts`; o core delega aos dois; o teste de conformidade exige o mesmo resultado | — |
+
+**Verificação (rodada 6):** `audit:deps` 0; `lint` 0; `typecheck` 0; `build` 0; `npm test` 0 (API 486, rotas `node:test` 27, web 121); `verify:release` 0; `test:e2e` 0.

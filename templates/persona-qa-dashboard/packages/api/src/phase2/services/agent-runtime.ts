@@ -260,6 +260,7 @@ export class AgentRuntime {
     const messages = [...stepContext.messages]
     const collectedFindings: AgentStepOutput['findings'] = []
     const collectedEvidence: string[] = []
+    const screenshotEvidence: string[] = []
     const accumulatedOutput: Record<string, unknown> = {}
     const expectedArtifacts = this.extractExpectedArtifacts(messages)
     const stepId = this.extractScenarioStepId(messages)
@@ -559,7 +560,7 @@ export class AgentRuntime {
         }
 
         if (toolName === REPORT_FINDING_TOOL && result.ok) {
-          result = this.recordReportedFinding(profile, sessionId, stepId, result.output, collectedEvidence, collectedFindings)
+          result = this.recordReportedFinding(profile, sessionId, stepId, result.output, collectedEvidence, collectedFindings, screenshotEvidence)
         }
 
         this.sessionService.appendEvent(sessionId, {
@@ -585,6 +586,7 @@ export class AgentRuntime {
           const output = result.output as Record<string, unknown>
           if (output?.artifactId) {
             collectedEvidence.push(String(output.artifactId))
+            if (toolCall.name === 'captureScreenshot') screenshotEvidence.push(String(output.artifactId))
           }
         }
 
@@ -979,6 +981,7 @@ export class AgentRuntime {
     output: unknown,
     collectedEvidence: string[],
     collectedFindings: AgentStepOutput['findings'],
+    screenshotEvidence: string[],
   ): ToolResult {
     const finding = (output as { reportedFinding?: ReportedFinding } | undefined)?.reportedFinding
     if (!finding) {
@@ -986,7 +989,8 @@ export class AgentRuntime {
     }
 
     const evidence = finding.evidenceArtifactIds.filter((id) => collectedEvidence.includes(id))
-    if (profile.evidencePolicy.requireScreenshotForFinding && evidence.length === 0) {
+    // A screenshot policy is met by a screenshot of this step; a DOM snippet alone does not count.
+    if (profile.evidencePolicy.requireScreenshotForFinding && !evidence.some((id) => screenshotEvidence.includes(id))) {
       return {
         ok: false,
         error: {
