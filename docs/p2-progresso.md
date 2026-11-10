@@ -615,3 +615,19 @@ espera, por exemplo) não é interrompida no meio; o que o passo impede é a pr�
   `.github/`, que está fora deste trabalho; fica para o Allan.
 
 **Verificação:** `typecheck` 0; `npm test` 0 (API 460, web 121); `verify:release` 0; `test:e2e` 0, já com o `node_modules` reinstalado pelo lockfile novo.
+
+## S-12 · parte 2: `drizzle-orm` 0.36 → 0.45.4 — feito
+
+- `npx npm@11.6.2 install drizzle-orm@^0.45.4 -w @persona-qa/api --package-lock-only`, depois
+  `npm ci`. `tsc` 0 sem nenhuma mudança de código.
+- Risco específico: o runtime instalado não usa o `better-sqlite3` real, e sim o shim sobre
+  `node:sqlite` que o instalador gera. Nenhum verificador chama as rotas com drizzle no runtime
+  instalado. Medição: as suítes `node:test` de `src/routes/__tests__` (27 testes, rotas runs,
+  stats e sync) rodadas com um hook de resolução do Node que troca `better-sqlite3` pelo shim.
+  Resultado: 27/27 com o shim e 27/27 com o `better-sqlite3` real.
+- Checagem do instrumento: com um shim que lança no construtor, o mesmo comando falha em 5 suítes,
+  então o hook carrega o shim de fato.
+- Template depois: 5 vulnerabilidades (1 alta, `zod`; 4 moderadas de `drizzle-kit`/`esbuild`, só
+  em desenvolvimento).
+
+**Verificação:** `typecheck` 0; `npm test` 0 (API 460, rotas `node:test` 27, web 121); `verify:release` 0; `test:e2e` 0.
