@@ -631,3 +631,28 @@ espera, por exemplo) não é interrompida no meio; o que o passo impede é a pr�
   em desenvolvimento).
 
 **Verificação:** `typecheck` 0; `npm test` 0 (API 460, rotas `node:test` 27, web 121); `verify:release` 0; `test:e2e` 0.
+
+## S-12 · parte 3: `zod` 3 → 4.6.7 (raiz e template) — feito
+
+- Instalado com `npx npm@11.6.2 install zod@^4.6.7 --package-lock-only` nos workspaces
+  `@persona-qa/api`, `@agentic-platform/core` e `@agentic-platform/host-sdk`, seguido de `npm ci`.
+- O `tsc` apontou dois tipos de quebra:
+  - 31 `z.record(valor)` de um argumento (18 no template, 13 na raiz). O zod 4 exige o schema da
+    chave; viraram `z.record(z.string(), valor)`. A troca foi feita por um script que só altera
+    chamadas com argumento único.
+  - `z.typeToFlattenedError` em `validateExecutionContext`, código meu do S-07. Foi trocado por um
+    tipo estrutural explícito e `z.flattenError`.
+- Risco de semântica conferido:
+  - No zod 4, o valor de `.default()` não passa mais pelo schema. O `tsc` exige que ele satisfaça
+    o tipo de saída completo e passou, então nenhum default de objeto ficou dependendo de defaults
+    internos.
+  - Não há `transform`/`preprocess`/`pipe` em nenhum dos schemas.
+- `npm run audit:deps` agora sai com 0:
+  - raiz: 0 vulnerabilidades;
+  - template: 4 moderadas, todas de `drizzle-kit` e do `esbuild` antigo que ele traz, só em
+    desenvolvimento. O `drizzle-kit` 0.31 é major e não entrou.
+
+**Resultado do S-12:** template de 17 (1 crítica, 8 altas) para 4 moderadas de desenvolvimento;
+raiz de 1 alta para 0.
+
+**Verificação:** `typecheck` 0; `npm test` 0 (API 460, rotas `node:test` 27, web 121); `verify:release` 0; `test:e2e` 0.

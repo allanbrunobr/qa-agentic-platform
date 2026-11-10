@@ -22,8 +22,8 @@ export type ToolRiskLevel = z.infer<typeof ToolRiskLevelSchema>
 export const ToolMetadataSchema = z.object({
   name: z.string(),
   description: z.string(),
-  inputSchema: z.record(z.unknown()).optional(),
-  outputSchema: z.record(z.unknown()).optional(),
+  inputSchema: z.record(z.string(), z.unknown()).optional(),
+  outputSchema: z.record(z.string(), z.unknown()).optional(),
   requiresBrowser: z.boolean().default(false),
   riskLevel: ToolRiskLevelSchema.optional(),
   tags: z.array(z.string()).default([]),

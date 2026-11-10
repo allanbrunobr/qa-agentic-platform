@@ -105,7 +105,7 @@ export const AdaptiveDecisionSchema = z.object({
   previousValue: z.unknown().optional(),
   newValue: z.unknown().optional(),
   circuitBreakerOpen: z.boolean().optional(),
-  historicalContext: z.record(z.unknown()).optional(),
+  historicalContext: z.record(z.string(), z.unknown()).optional(),
 });
 export type AdaptiveDecision = z.infer<typeof AdaptiveDecisionSchema>;
 
@@ -123,7 +123,7 @@ export const OrchestratorDecisionSchema = z.object({
     factors: z.array(z.string()).optional(),
   }).optional(),
   adaptations: z.array(AdaptiveDecisionSchema).default([]),
-  historicalContext: z.record(z.unknown()).optional(),
+  historicalContext: z.record(z.string(), z.unknown()).optional(),
 });
 export type OrchestratorDecision = z.infer<typeof OrchestratorDecisionSchema>;
 

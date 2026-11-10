@@ -41,7 +41,7 @@ export const SourceLocationSchema = z.object({
 })
 export type SourceLocation = z.infer<typeof SourceLocationSchema>
 
-const EvidenceMetadataSchema = z.record(z.union([
+const EvidenceMetadataSchema = z.record(z.string(), z.union([
   z.string(),
   z.number(),
   z.boolean(),

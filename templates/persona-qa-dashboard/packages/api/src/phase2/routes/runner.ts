@@ -26,7 +26,7 @@ const ResetQualityGateBody = z.object({
 
 const StartAgenticRunBody = z.object({
   scenario_id: z.string(),
-  seed_artifacts: z.record(z.string()).optional(),
+  seed_artifacts: z.record(z.string(), z.string()).optional(),
   execution_context: z.unknown().optional(),
 })
 

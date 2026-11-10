@@ -36,10 +36,12 @@ export type Phase2ExecutionContext = z.infer<typeof Phase2ExecutionContextSchema
  * Validates a client-supplied execution_context. Unlike parseExecutionContext, which drops an invalid
  * context, this reports the error, so a run never silently falls back to the environment target.
  */
-export function validateExecutionContext(input: unknown): { ok: true } | { ok: false; error: z.typeToFlattenedError<unknown> } {
+export function validateExecutionContext(
+  input: unknown,
+): { ok: true } | { ok: false; error: { formErrors: string[]; fieldErrors: Record<string, string[] | undefined> } } {
   if (input === undefined || input === null) return { ok: true }
   const parsed = Phase2ExecutionContextSchema.safeParse(input)
-  return parsed.success ? { ok: true } : { ok: false, error: parsed.error.flatten() }
+  return parsed.success ? { ok: true } : { ok: false, error: z.flattenError(parsed.error) }
 }
 
 export function parseExecutionContext(input: unknown): Phase2ExecutionContext | undefined {

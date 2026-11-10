@@ -43,7 +43,7 @@ export const AgentProfileSchema = z.object({
     requireDomSnippetForFinding: false,
   }),
   canBlockRun: z.boolean().default(false),
-  outputContract: z.record(z.unknown()).optional(),
+  outputContract: z.record(z.string(), z.unknown()).optional(),
   promptPath: z.string().optional(),
   systemPrompt: z.string().optional(),
 })
@@ -54,8 +54,8 @@ export const ToolCallSchema = z.object({
   name: z.string().optional(),
   tool: z.string().optional(),
   input: z.unknown().optional(),
-  args: z.record(z.unknown()).optional(),
-  result: z.record(z.unknown()).optional(),
+  args: z.record(z.string(), z.unknown()).optional(),
+  result: z.record(z.string(), z.unknown()).optional(),
 })
 export type ToolCall = z.infer<typeof ToolCallSchema>
 
@@ -108,7 +108,7 @@ export const AgentStepOutputSchema = z.object({
   error: z.string().optional(),
   stepIndex: z.number().optional(),
   agentId: z.string().optional(),
-  output: z.record(z.unknown()).default({}),
+  output: z.record(z.string(), z.unknown()).default({}),
   durationMs: z.number().default(0),
   success: z.boolean().optional(),
 })

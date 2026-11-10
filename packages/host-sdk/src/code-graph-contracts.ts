@@ -67,7 +67,7 @@ export const CodeGraphNodeSchema = z.object({
   status: z.string().min(1).max(80).optional(),
   confidence: z.number().min(0).max(1).optional(),
   source: SourceLocationSchema.optional(),
-  metadata: z.record(z.unknown()).default({}),
+  metadata: z.record(z.string(), z.unknown()).default({}),
 })
 export type CodeGraphNode = z.infer<typeof CodeGraphNodeSchema>
 
@@ -78,7 +78,7 @@ export const CodeGraphEdgeSchema = z.object({
   type: CodeGraphEdgeTypeSchema,
   label: z.string().min(1).max(240).optional(),
   confidence: z.number().min(0).max(1).optional(),
-  metadata: z.record(z.unknown()).default({}),
+  metadata: z.record(z.string(), z.unknown()).default({}),
 })
 export type CodeGraphEdge = z.infer<typeof CodeGraphEdgeSchema>
 

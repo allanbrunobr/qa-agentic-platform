@@ -94,7 +94,7 @@ const ContextJsonSchema = z.object({
   skipped: z.number().optional(),
   findings: z.array(FindingJsonSchema).optional(),
   run_source: z.string().optional(),
-  artifacts: z.record(z.unknown()).optional(),
+  artifacts: z.record(z.string(), z.unknown()).optional(),
 });
 
 export const MetadataSchema = z.object({
