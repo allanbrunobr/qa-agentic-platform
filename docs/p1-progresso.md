@@ -5,6 +5,25 @@ Cada item tem um commit local próprio. Nada foi enviado ao remoto (sem push e s
 
 Verificação de cada item: os comandos do job `verify` do CI (`npm run typecheck`, `npm test`,
 `npm run verify:release`) mais `npm run test:e2e` com Chromium real, cada um com exit code próprio.
+O job `secrets` (gitleaks) do CI não foi rodado localmente.
+
+**Situação:** os três P1 estão corrigidos, cada um num commit local. Cada correção tem teste que
+falhava antes dela e uma checagem por mutação: com a correção desfeita, o teste volta a falhar.
+
+| Item | Commit | Teste que falhava antes |
+|---|---|---|
+| S-01 | `f1503e0` | `local-request-guard.test.ts` (13 falhas sem o guard) |
+| S-02 | `6ac046f` | `hardening.regression.test.ts`, `testDiscoveryConfinement` (7 de 11 falhavam) |
+| B-02 | ver `git log` | `execution-target.test.ts` (4 de 5) e o passo novo do e2e |
+
+**Para o Allan (exige decisão, conta ou acesso):**
+
+- Push e PR das três correções e do relatório; nada foi enviado.
+- Rodar o job de gitleaks do CI quando houver PR.
+- Decidir se o runtime gerado também deve ter token, além de `Host` e `Origin` (ver S-01).
+- Runtimes já instalados em outros repositórios não recebem estas correções sem reinstalar
+  (`install-local`); não há mecanismo de upgrade (A-03 do relatório).
+- Rotação de chaves não é necessária por estas mudanças: nenhuma chave real foi usada ou exposta.
 
 ## S-01 · API do runtime gerado sem checagem de `Host` e `Origin` — feito
 
@@ -88,4 +107,40 @@ FAIL no log; API 345 testes, web 116); `verify:release` 0; `test:e2e` 0 (app sau
 
 **Fica para o Allan:** nada que exija conta ou credencial.
 
-## B-02 · `targetBaseUrl` ignorado pelas tools — pendente
+## B-02 · `targetBaseUrl` ignorado pelas tools — feito
+
+**O que mudou**
+
+- `phase2/types/tool-types.ts`: `ToolContext.executionTarget` (`baseUrl`, `targetRepoPath`).
+- `phase2/routes/runner.ts`: o run coloca `executionTarget` no contexto (a URL resolvida do
+  `execution_context`, ou o `targetRepoPath` nas execuções sem browser). Ele é posto depois dos
+  `seed_artifacts`, para que um artefato enviado pelo cliente não o substitua.
+- `phase2/services/agent-runtime.ts`: repassa `executionTarget` ao `ToolContext` e o mantém fora
+  da lista de artefatos que vai no prompt do modelo.
+- `phase2/tools/generated-adapter-tools.ts`: as tools de frontend resolvem rotas contra a base do
+  run e só usam `PLAYWRIGHT_BASE_URL` quando o run não tem alvo. As tools de repositório usam o
+  `targetRepoPath` do run e só usam `AGENTIC_QA_TARGET_REPO` ou o metadata como padrão.
+- `docs/testing.md`: o novo passo do e2e.
+
+**Testes**
+
+- `phase2/__tests__/execution-target.test.ts` (5 casos): navegação usa a base do run com
+  `PLAYWRIGHT_BASE_URL` diferente; o mesmo vale quando outra tool abre a página em branco; o
+  fallback para o ambiente continua; as tools de repositório usam o `targetRepoPath` do run; o
+  agent runtime entrega `executionTarget` à tool e não o põe no prompt. **Antes da correção:** 4
+  dos 5 falharam (o de fallback já passava).
+- `npm run test:e2e`, passo novo: o launcher continua com `PLAYWRIGHT_BASE_URL` no app saudável e o
+  run é disparado com `targetBaseUrl` apontando para uma cópia quebrada em outra porta. Espera
+  `contract_violated`.
+- **Mutação:** com as tools ignorando a base do run de novo, o e2e falhou exatamente nesse passo,
+  com `status=complete verdict=contract_compliant`, que é o verde falso do achado. O teste
+  unitário falhou em 2 casos. Correção restaurada.
+
+**Verificação:** `typecheck` 0; `npm test` 0 (API: 31 arquivos, 350 testes; web 116; 0 FAIL no
+hardening); `verify:release` 0 (os mesmos 350); `test:e2e` 0 (saudável `contract_compliant`, run
+apontado para a cópia quebrada `contract_violated`, app quebrado `contract_violated`).
+
+**Fora do escopo deste item:** `routeHint` absoluto e `targetBaseUrl` com esquema não-http
+continuam aceitos (S-07, P2).
+
+**Fica para o Allan:** nada que exija conta ou credencial.

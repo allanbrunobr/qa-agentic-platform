@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import type { ToolHandler, ToolMetadata, ToolResult } from '../types/tool-types.js'
+import type { ToolContext, ToolHandler, ToolMetadata, ToolResult } from '../types/tool-types.js'
 import type { ToolRegistry } from '../services/tool-registry.js'
 import {
   getGeneratedRepositoryKind,
@@ -9,6 +9,14 @@ import {
   resolveGeneratedTargetRepoPath,
 } from '../services/generated-adapter-runtime.js'
 import { confineEndpointUrl, confinePackageBin } from './endpoint-confinement.js'
+
+type FrontendToolContext = Pick<ToolContext, 'page' | 'executionTarget'>
+
+/** The repository the run targets: execution_context.targetRepoPath first, then the launch default. */
+function targetRepoPathFor(context: ToolContext | undefined): string {
+  const requested = context?.executionTarget?.targetRepoPath
+  return requested ? path.resolve(requested) : resolveGeneratedTargetRepoPath()
+}
 
 interface PackageJson {
   name?: unknown
@@ -145,8 +153,8 @@ export function registerGeneratedAdapterTools(registry: ToolRegistry): void {
   registerGeneratedFrontendTools(registry)
 }
 
-const startApiServiceHandler: ToolHandler = async (): Promise<ToolResult> => {
-  const targetRepoPath = resolveGeneratedTargetRepoPath()
+const startApiServiceHandler: ToolHandler = async (_input, context): Promise<ToolResult> => {
+  const targetRepoPath = targetRepoPathFor(context)
   const baseUrl = resolveApiBaseUrl()
   const runtimePlan = readGeneratedAdapterJson<RuntimePlan>('runtime/runtime-plan.generated.json')
 
@@ -199,8 +207,8 @@ const verifyApiResponseHandler: ToolHandler = async (_input, context): Promise<T
   })
 }
 
-const runCliHelpHandler: ToolHandler = async (input: unknown): Promise<ToolResult> => {
-  const targetRepoPath = resolveGeneratedTargetRepoPath()
+const runCliHelpHandler: ToolHandler = async (input: unknown, context): Promise<ToolResult> => {
+  const targetRepoPath = targetRepoPathFor(context)
   const args = normalizeArgs(input)
   const command = await resolveCliCommand(targetRepoPath, args)
   if (!command) {
@@ -252,8 +260,8 @@ const verifyCliOutputHandler: ToolHandler = async (_input, context): Promise<Too
   })
 }
 
-const inspectPackageExportsHandler: ToolHandler = async (): Promise<ToolResult> => {
-  const targetRepoPath = resolveGeneratedTargetRepoPath()
+const inspectPackageExportsHandler: ToolHandler = async (_input, context): Promise<ToolResult> => {
+  const targetRepoPath = targetRepoPathFor(context)
   const packageJson = await readPackageJson(targetRepoPath)
 
   return ok({
@@ -270,7 +278,7 @@ const inspectPackageExportsHandler: ToolHandler = async (): Promise<ToolResult> 
 }
 
 const verifyPublicApiDocsHandler: ToolHandler = async (_input, context): Promise<ToolResult> => {
-  const targetRepoPath = resolveGeneratedTargetRepoPath()
+  const targetRepoPath = targetRepoPathFor(context)
   const packageExports = asRecord(context.artifacts?.['packageExports'])
   const hasExports = packageExports?.['exports'] !== null && packageExports?.['exports'] !== undefined
   const hasTypes = packageExports?.['types'] !== null && packageExports?.['types'] !== undefined
@@ -292,8 +300,8 @@ const verifyPublicApiDocsHandler: ToolHandler = async (_input, context): Promise
   })
 }
 
-const inspectRepositoryStructureHandler: ToolHandler = async (): Promise<ToolResult> => {
-  const targetRepoPath = resolveGeneratedTargetRepoPath()
+const inspectRepositoryStructureHandler: ToolHandler = async (_input, context): Promise<ToolResult> => {
+  const targetRepoPath = targetRepoPathFor(context)
   const entries = await listTopLevelEntries(targetRepoPath)
 
   return ok({
@@ -307,8 +315,8 @@ const inspectRepositoryStructureHandler: ToolHandler = async (): Promise<ToolRes
   })
 }
 
-const identifyTestEntrypointsHandler: ToolHandler = async (): Promise<ToolResult> => {
-  const targetRepoPath = resolveGeneratedTargetRepoPath()
+const identifyTestEntrypointsHandler: ToolHandler = async (_input, context): Promise<ToolResult> => {
+  const targetRepoPath = targetRepoPathFor(context)
   const packageJson = await readPackageJson(targetRepoPath)
   const scripts = asStringRecord(packageJson?.scripts)
   const interestingScripts = Object.entries(scripts).filter(([name]) => (
@@ -393,10 +401,10 @@ function frontendHandlerForCapability(
 
 const openPrimaryRouteHandler = async (
   capability: { id?: string; routeHint?: string } | undefined,
-  context: { page?: unknown },
+  context: FrontendToolContext,
 ): Promise<ToolResult> => {
   const page = requirePage(context.page)
-  const route = normalizeRouteHint(capability?.routeHint)
+  const route = normalizeRouteHint(capability?.routeHint, context.executionTarget?.baseUrl)
   await page.goto?.(route, { waitUntil: 'domcontentloaded' })
 
   return ok({
@@ -418,10 +426,10 @@ const openPrimaryRouteHandler = async (
 const fillCustomerEmailHandler = async (
   input: unknown,
   capability: { id?: string; routeHint?: string; purpose?: string } | undefined,
-  context: { page?: unknown },
+  context: FrontendToolContext,
 ): Promise<ToolResult> => {
   const page = requirePage(context.page)
-  await ensurePageReady(page, capability?.routeHint)
+  await ensurePageReady(page, capability?.routeHint, context)
   const inputRecord = asRecord(input)
   const fieldLabel = extractQuotedLabel(capability?.purpose)
   const wantsEmail = !capability || /e-?mail/i.test(`${capability.id ?? ''} ${fieldLabel ?? ''}`)
@@ -467,10 +475,10 @@ const fillCustomerEmailHandler = async (
 
 const addCartItemHandler = async (
   capability: { id?: string; routeHint?: string; purpose?: string; sourceHint?: string } | undefined,
-  context: { page?: unknown },
+  context: FrontendToolContext,
 ): Promise<ToolResult> => {
   const page = requirePage(context.page)
-  await ensurePageReady(page, capability?.routeHint)
+  await ensurePageReady(page, capability?.routeHint, context)
   const clicked = await clickFirst(page, {
     exactLabel: extractQuotedLabel(capability?.purpose),
     patterns: [/add.*cart|add.*item|comprar|adicionar/i],
@@ -494,10 +502,10 @@ const addCartItemHandler = async (
 
 const submitOrderHandler = async (
   capability: { id?: string; routeHint?: string; purpose?: string; sourceHint?: string } | undefined,
-  context: { page?: unknown },
+  context: FrontendToolContext,
 ): Promise<ToolResult> => {
   const page = requirePage(context.page)
-  await ensurePageReady(page, capability?.routeHint)
+  await ensurePageReady(page, capability?.routeHint, context)
   const clicked = await clickFirst(page, {
     exactLabel: extractQuotedLabel(capability?.purpose),
     patterns: [/submit.*order|checkout|place.*order|finalizar|confirmar|enviar|submit/i],
@@ -522,10 +530,10 @@ const submitOrderHandler = async (
 
 const interactWithPrimaryActionHandler = async (
   capability: { id?: string; routeHint?: string; purpose?: string; sourceHint?: string } | undefined,
-  context: { page?: unknown },
+  context: FrontendToolContext,
 ): Promise<ToolResult> => {
   const page = requirePage(context.page)
-  await ensurePageReady(page, capability?.routeHint)
+  await ensurePageReady(page, capability?.routeHint, context)
   const clicked = await clickFirst(page, {
     exactLabel: extractQuotedLabel(capability?.purpose),
     patterns: [/continue|start|save|next|primary|submit|open|iniciar|salvar|avancar/i],
@@ -549,10 +557,10 @@ const interactWithPrimaryActionHandler = async (
 
 const verifyPrimaryFeedbackHandler = async (
   capability: { routeHint?: string } | undefined,
-  context: { page?: unknown },
+  context: FrontendToolContext,
 ): Promise<ToolResult> => {
   const page = requirePage(context.page)
-  await ensurePageReady(page, capability?.routeHint)
+  await ensurePageReady(page, capability?.routeHint, context)
   const feedback = await waitForVisibleText(page, SUCCESS_FEEDBACK_SELECTORS, FEEDBACK_WAIT_MS)
 
   if (!feedback) {
@@ -583,10 +591,10 @@ const verifyPrimaryFeedbackHandler = async (
 
 const captureScreenshotHandler = async (
   capability: { routeHint?: string } | undefined,
-  context: { page?: unknown },
+  context: FrontendToolContext,
 ): Promise<ToolResult> => {
   const page = requirePage(context.page)
-  await ensurePageReady(page, capability?.routeHint)
+  await ensurePageReady(page, capability?.routeHint, context)
   const screenshot = await page.screenshot?.({ fullPage: true })
   const byteLength = screenshot instanceof Uint8Array ? screenshot.byteLength : null
 
@@ -646,17 +654,22 @@ function requirePage(value: unknown): PageLike {
   return value as PageLike
 }
 
-async function ensurePageReady(page: PageLike, routeHint: string | undefined): Promise<void> {
+async function ensurePageReady(page: PageLike, routeHint: string | undefined, context: FrontendToolContext): Promise<void> {
   const currentUrl = safeCurrentUrl(page)
   if (currentUrl && currentUrl !== 'about:blank') return
-  await page.goto?.(normalizeRouteHint(routeHint), { waitUntil: 'domcontentloaded' })
+  await page.goto?.(normalizeRouteHint(routeHint, context.executionTarget?.baseUrl), { waitUntil: 'domcontentloaded' })
 }
 
-function normalizeRouteHint(value: string | undefined): string {
+/**
+ * Resolves a route against the run's base URL. The run target (execution_context.targetBaseUrl,
+ * the dashboard's "target base URL") wins over PLAYWRIGHT_BASE_URL, which is only the launch
+ * default; otherwise the browser would test one target while the verdict names another (B-02).
+ */
+function normalizeRouteHint(value: string | undefined, runBaseUrl?: string): string {
   const rawRoute = !value || value === '*' ? '/' : value
   if (/^https?:\/\//i.test(rawRoute)) return rawRoute
   const route = rawRoute.startsWith('/') ? rawRoute : `/${rawRoute}`
-  const baseUrl = process.env['PLAYWRIGHT_BASE_URL']
+  const baseUrl = runBaseUrl || process.env['PLAYWRIGHT_BASE_URL']
   if (!baseUrl) return route
 
   try {

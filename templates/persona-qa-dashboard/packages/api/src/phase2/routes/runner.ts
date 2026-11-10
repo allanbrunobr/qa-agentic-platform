@@ -131,11 +131,16 @@ export async function phase2RunnerRoutes(app: FastifyInstance): Promise<void> {
       let page: { close(): Promise<void> } | null = null
 
       try {
+        // executionTarget is what the tools resolve routes and repository paths against. It is set
+        // after the seed artifacts so a client-supplied artifact cannot replace it, and the agent
+        // runtime keeps it out of the model prompt.
         if (useGeneratedNonFrontendRuntime) {
+          const targetRepoPath = executionContext?.targetRepoPath ?? resolveGeneratedTargetRepoPath()
           await runtime.orchestrator.executeRunInSession(session.id, scenario, {
             ...seedArtifacts,
-            targetRepoPath: executionContext?.targetRepoPath ?? resolveGeneratedTargetRepoPath(),
+            targetRepoPath,
             runtimeMode: 'generated_non_browser',
+            executionTarget: { targetRepoPath },
           })
           return
         }
@@ -147,6 +152,7 @@ export async function phase2RunnerRoutes(app: FastifyInstance): Promise<void> {
         await runtime.orchestrator.executeRunInSession(session.id, scenario, {
           ...seedArtifacts,
           page,
+          executionTarget: { baseUrl },
         })
       } catch (error) {
         runtime.sessionService.updateStatus(session.id, 'failed')

@@ -5,7 +5,11 @@
 // 3. Serves the copy over HTTP and starts the generated launcher with the
 //    deterministic runtime (no API key needed) and real Chromium.
 // 4. Runs `place_order` and expects status=complete, verdict=contract_compliant.
-// 5. Breaks the app (success feedback removed) and expects the same scenario to
+// 5. Serves a broken copy on another port and runs `place_order` with
+//    execution_context.targetBaseUrl pointing at it, while PLAYWRIGHT_BASE_URL still
+//    points at the healthy app. Expects contract_violated: the run must test its own
+//    target, not the environment default.
+// 6. Breaks the app (success feedback removed) and expects the same scenario to
 //    fail with verdict=contract_violated. This guards against false positives.
 //
 // Usage: npm run test:e2e   (KEEP_E2E_DIR=1 keeps the temp dir for debugging)
@@ -30,6 +34,16 @@ try {
   log(`healthy app: ${describeSession(healthy)}`)
   if (healthy.status !== 'complete' || healthy.contractEvaluation?.verdict !== 'contract_compliant') {
     throw new Error(`expected complete/contract_compliant on the healthy app, got ${describeSession(healthy)}`)
+  }
+
+  // B-02: the launcher's PLAYWRIGHT_BASE_URL still points at the healthy app. A run aimed at a broken
+  // copy through execution_context.targetBaseUrl (the dashboard's "target base URL") must test that
+  // copy and fail. If the tools fell back to the environment, this would come back compliant.
+  const brokenTargetUrl = await runtime.serveBrokenCopy()
+  const targeted = await runtime.waitForSession(await runtime.startScenario('place_order', { targetBaseUrl: brokenTargetUrl }))
+  log(`run aimed at a broken copy while the environment points at the healthy app: ${describeSession(targeted)}`)
+  if (targeted.contractEvaluation?.verdict !== 'contract_violated') {
+    throw new Error(`expected contract_violated when the run targets the broken copy, got ${describeSession(targeted)}`)
   }
 
   runtime.breakApp()

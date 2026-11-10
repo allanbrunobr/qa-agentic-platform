@@ -167,8 +167,11 @@ export async function startStorefrontRuntime({ log, keepDir = false }) {
       return { status: response.status, body }
     }
 
-    async function startScenario(scenarioId) {
-      const started = await api('/api/p2/runs', { method: 'POST', body: JSON.stringify({ scenario_id: scenarioId }) })
+    async function startScenario(scenarioId, executionContext) {
+      const body = executionContext
+        ? { scenario_id: scenarioId, execution_context: executionContext }
+        : { scenario_id: scenarioId }
+      const started = await api('/api/p2/runs', { method: 'POST', body: JSON.stringify(body) })
       if (started.status !== 202 || !started.body?.session_id) {
         throw new Error(`POST /api/p2/runs returned ${started.status}: ${JSON.stringify(started.body)}`)
       }
@@ -190,18 +193,40 @@ export async function startStorefrontRuntime({ log, keepDir = false }) {
 
     /** Removes the success feedback from the app so place_order must fail. */
     function breakApp() {
-      const indexPath = path.join(targetDir, 'index.html')
-      const original = fs.readFileSync(indexPath, 'utf8')
-      const broken = original.replace("feedback.textContent = 'Order submitted successfully'", "feedback.textContent = ''")
-      if (broken === original) throw new Error('could not inject the regression into index.html (success message not found)')
-      fs.writeFileSync(indexPath, broken)
+      breakIndexHtml(targetDir)
     }
 
-    return { appUrl, apiUrl, webUrl, targetDir, api, startScenario, waitForSession, listScenarioIds, breakApp, stop }
+    /**
+     * Serves a second, broken copy of the app on its own port and returns its URL. The launcher's
+     * PLAYWRIGHT_BASE_URL keeps pointing at the healthy app, so a run aimed at this URL only fails
+     * if the runtime really tests the run's target.
+     */
+    async function serveBrokenCopy() {
+      const brokenDir = path.join(workDir, 'storefront-broken')
+      fs.cpSync(targetDir, brokenDir, {
+        recursive: true,
+        filter: (source) => !/[\\/](\.agentic-qa|node_modules|dist)([\\/]|$)/.test(path.relative(targetDir, source)),
+      })
+      breakIndexHtml(brokenDir)
+      const brokenPort = await freePort()
+      const brokenServer = await serveStatic(brokenDir, brokenPort)
+      cleanups.push(() => new Promise((resolve) => brokenServer.close(() => resolve())))
+      return `http://127.0.0.1:${brokenPort}`
+    }
+
+    return { appUrl, apiUrl, webUrl, targetDir, api, startScenario, waitForSession, listScenarioIds, breakApp, serveBrokenCopy, stop }
   } catch (error) {
     await stop()
     throw error
   }
+}
+
+function breakIndexHtml(dir) {
+  const indexPath = path.join(dir, 'index.html')
+  const original = fs.readFileSync(indexPath, 'utf8')
+  const broken = original.replace("feedback.textContent = 'Order submitted successfully'", "feedback.textContent = ''")
+  if (broken === original) throw new Error('could not inject the regression into index.html (success message not found)')
+  fs.writeFileSync(indexPath, broken)
 }
 
 export function describeSession(session) {

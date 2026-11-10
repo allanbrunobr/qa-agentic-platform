@@ -10,7 +10,7 @@ import type {
   ToolDefinition,
 } from '../types/agent-types.js'
 import type { ScenarioStep } from '../types/scenario-types.js'
-import type { ToolContext, ToolResult } from '../types/tool-types.js'
+import type { ExecutionTarget, ToolContext, ToolResult } from '../types/tool-types.js'
 import { buildStepInstructionEnvelope, getGlobalAgenticInstructions } from './instruction-layer.js'
 import type { L5LearningSignal, RuntimeLearningOverlay, SessionService } from './session-service.js'
 import { defaultRuntimeHookBus, type RuntimeHookBus } from './runtime-hooks.js'
@@ -22,6 +22,20 @@ export interface StepContext {
   sessionId: string
   messages: ModelMessage[]
   page?: unknown
+  /** Passed to tools, never shown to the model. */
+  executionTarget?: ExecutionTarget
+}
+
+/** Runtime-only context keys: handed to tools, never listed as artifacts in the model prompt. */
+const RUNTIME_ONLY_CONTEXT_KEYS = new Set(['page', 'sessionId', 'executionTarget'])
+
+function asExecutionTarget(value: unknown): ExecutionTarget | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const record = value as Record<string, unknown>
+  const target: ExecutionTarget = {}
+  if (typeof record['baseUrl'] === 'string' && record['baseUrl']) target.baseUrl = record['baseUrl']
+  if (typeof record['targetRepoPath'] === 'string' && record['targetRepoPath']) target.targetRepoPath = record['targetRepoPath']
+  return target.baseUrl || target.targetRepoPath ? target : undefined
 }
 
 const MAX_TOOL_ROUNDS = 10
@@ -127,7 +141,7 @@ export class AgentRuntime {
       const step = stepOrContext as ScenarioStep
       const context = maybeContext ?? {}
       const availableArtifacts = Object.fromEntries(
-        Object.entries(context).filter(([key]) => key !== 'page' && key !== 'sessionId'),
+        Object.entries(context).filter(([key]) => !RUNTIME_ONLY_CONTEXT_KEYS.has(key)),
       )
       const runtimeInstructions = buildStepInstructionEnvelope(step, availableArtifacts)
       const scopedProfile = this.scopeProfileToScenarioStep(profile, step)
@@ -145,6 +159,7 @@ export class AgentRuntime {
           }),
         }],
         page: context['page'],
+        executionTarget: asExecutionTarget(context['executionTarget']),
       })
 
       return {
@@ -162,7 +177,7 @@ export class AgentRuntime {
     }
 
     const profile = profileOrAgentId
-    const { sessionId, page } = stepOrContext as StepContext
+    const { sessionId, page, executionTarget } = stepOrContext as StepContext
     const messages = [...(stepOrContext as StepContext).messages]
     const collectedFindings: AgentStepOutput['findings'] = []
     const collectedEvidence: string[] = []
@@ -374,6 +389,7 @@ export class AgentRuntime {
           sessionId,
           agentRole: profile.role,
           artifacts: accumulatedOutput,
+          ...(executionTarget ? { executionTarget } : {}),
         }
 
         let result: ToolResult
