@@ -656,3 +656,37 @@ espera, por exemplo) não é interrompida no meio; o que o passo impede é a pr�
 raiz de 1 alta para 0.
 
 **Verificação:** `typecheck` 0; `npm test` 0 (API 460, rotas `node:test` 27, web 121); `verify:release` 0; `test:e2e` 0.
+
+## T-05 · Cobertura não era medida — feito (medição, sem piso)
+
+**O que mudou**
+
+- Runtime (template): `@vitest/coverage-v8` 4.1.12, a mesma versão do `vitest`. A config de
+  cobertura ficou em `packages/api/vitest.config.ts`: `src/**` sem os `__tests__`.
+- Plataforma: `c8` na raiz. Os testes da plataforma são runners `tsx` caseiros; o `c8` coleta a
+  cobertura V8 de qualquer processo e dos seus filhos, sem trocar de runner.
+- `npm run test:coverage` roda os dois e gera HTML em `coverage/` (já no `.gitignore`; o instalador
+  já excluía `coverage` da cópia). Não há piso: isso fica para quando houver uma série de medições.
+- Os testes do core pedidos no relatório já existiam desde o B-01a (`contract-evaluation`), o B-07 e
+  o B-08 (`adapter-execution-engine`), e estão no `test:unit`. O que faltava era medir.
+
+**Medição**
+
+| Escopo | Linhas | Branches | Funções |
+|---|---|---|---|
+| Plataforma (`packages/*/src`, `test:unit` inteiro) | 78,28% | 69,35% | 75,46% |
+| Runtime (`packages/api/src`, vitest) | 63,85% | 54,03% | 67,68% |
+| `core/.../adapter-execution-engine.ts` | 77,96% | 59,01% | — |
+| `core/.../contract-evaluation.ts` | 96,48% | 69,69% | — |
+| `core/.../scenario-quality-gates.ts` | 29,78% | 100% | — |
+
+- Checagem do instrumento: o mesmo comando `c8 --all` sobre `node -e ""` dá 0% com o mesmo
+  denominador (14.854 linhas). O número da plataforma vem de fato dos testes.
+- Limites conhecidos:
+  - As 27 suítes `node:test` de `src/routes/__tests__` não entram no número do runtime, então os
+    arquivos de rota aparecem abaixo do real.
+  - O pacote web não foi medido.
+  - `scenario-quality-gates.ts` do core segue com pouca cobertura; o teste dele cabe no A-01.
+- `npm run audit:deps` continua saindo com 0 depois das dependências novas.
+
+**Verificação:** `typecheck` 0; `npm test` 0 (API 460, rotas `node:test` 27, web 121); `verify:release` 0; `test:e2e` 0.
