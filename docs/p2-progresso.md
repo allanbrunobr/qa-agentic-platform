@@ -893,3 +893,36 @@ ser removidos à mão.
   preservar as variáveis numa reinstalação bem-sucedida é decisão de produto.
 
 **Verificação:** `typecheck` 0; `npm test` 0 (API 470, rotas `node:test` 27, web 121); `verify:release` 0; `test:e2e` 0.
+
+## B-09 · `SessionService` recarregava a sessão a cada evento e `JSON.parse` sem proteção — feito
+
+**O que mudou** (`session-service.ts`, `scenario-quality-gates.ts`)
+
+- `addEvent` não chama mais `getSession`, que carregava todos os eventos, artefatos e achados da
+  sessão. O `ensureSession` logo antes já garante que a sessão existe.
+- `getSessionsForScenario(scenarioId)` lê só as sessões de um cenário, pelo índice
+  `idx_p2_sessions_scenario`. Passou a ser o default de `buildScenarioQualityGateForScenario`, que
+  o `POST /api/p2/runs` chama a cada execução. O gate já filtrava por cenário, então o resultado não
+  muda; o teste compara com o cálculo sobre todas as sessões.
+- `parseStoredJson`: um valor guardado com JSON inválido (evento, artefato, achado) vira
+  `{ unreadable: true, … }` no lugar. Antes, uma única linha assim fazia `getSession`,
+  `getAllSessions`, o runner e as estatísticas lançarem `SyntaxError`.
+
+**Testes** (`session-service-load.test.ts`, 3 casos, todos falhando antes da correção)
+
+- `addEvent` não chama `getSession`. Antes: 2 chamadas.
+- O gate de um cenário não chama `getAllSessions` e dá o mesmo resultado.
+- Com uma linha `{not json` gravada direto no banco, `getAllSessions` não lança, e o evento afetado
+  aparece como `unreadable`. Antes: `SyntaxError`.
+
+**Medição** (`addEvent` numa sessão em arquivo, média de 100 chamadas)
+
+| | Primeiros 100 eventos | Depois de 2.000 eventos |
+|---|---|---|
+| Antes | 0,162 ms | 1,82 ms |
+| Depois | 0,036 ms | 0,037 ms |
+
+**Não feito:** as outras telas que usam `getAllSessions` (estatísticas, maturidade, L5) continuam
+carregando tudo. Paginar exige mudar o contrato dessas rotas.
+
+**Verificação:** `typecheck` 0; `npm test` 0 (API 473, rotas `node:test` 27, web 121); `verify:release` 0; `test:e2e` 0.

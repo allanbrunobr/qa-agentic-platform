@@ -105,7 +105,8 @@ export function buildScenarioQualityGateForSessions(
 export function buildScenarioQualityGateForScenario(
   sessionService: SessionService,
   scenarioId: string,
-  sessions: Session[] = sessionService.getAllSessions(),
+  // The gate only looks at this scenario's sessions, so only those are loaded (B-09).
+  sessions: Session[] = sessionService.getSessionsForScenario(scenarioId),
 ): ScenarioQualityGate {
   const reset = sessionService.getLatestQualityGateReset(scenarioId)
   return buildScenarioQualityGateForSessions(scenarioId, sessions, reset ? { resetAt: reset.createdAt } : {})

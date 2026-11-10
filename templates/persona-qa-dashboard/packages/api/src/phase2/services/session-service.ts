@@ -630,13 +630,13 @@ export class SessionService {
 
     const artifacts = Object.fromEntries(
       artifactRows.map((artifact) => {
-        const payload = artifact.payload ? JSON.parse(artifact.payload) : {
+        const payload = artifact.payload ? parseStoredJson(artifact.payload) : {
           artifactId: String(artifact.id),
           type: artifact.artifact_type,
           description: artifact.description,
           filePath: artifact.file_path,
           content: artifact.content,
-          metadata: artifact.metadata ? JSON.parse(artifact.metadata) : undefined,
+          metadata: artifact.metadata ? parseStoredJson(artifact.metadata) : undefined,
         }
         return [artifact.artifact_key, payload]
       }),
@@ -650,7 +650,7 @@ export class SessionService {
       startedAt: row.started_at ?? row.created_at,
       completedAt: row.completed_at ?? undefined,
       events: events.map((event) => {
-        const data = event.data ? JSON.parse(event.data) as Record<string, unknown> : undefined
+        const data = event.data ? parseStoredJson(event.data) as Record<string, unknown> : undefined
         return {
           id: String(event.id),
           sessionId: event.session_id,
@@ -671,7 +671,7 @@ export class SessionService {
         severity: (finding.severity ?? 'info') as SessionFinding['severity'],
         title: finding.title ?? 'Untitled',
         description: finding.description ?? undefined,
-        evidence: finding.evidence ? JSON.parse(finding.evidence) : null,
+        evidence: finding.evidence ? parseStoredJson(finding.evidence) : null,
         createdAt: finding.created_at,
         timestamp: finding.created_at,
       })),
@@ -740,6 +740,17 @@ export class SessionService {
       .filter((session): session is Session => session !== undefined)
   }
 
+  /** The sessions of one scenario, through the scenario index; the quality gate needs no others (B-09). */
+  getSessionsForScenario(scenarioId: string): Session[] {
+    const rows = this.sqlite
+      .prepare(`SELECT session_id FROM p2_sessions WHERE scenario_id = ? ORDER BY rowid ASC`)
+      .all(scenarioId) as Array<{ session_id: string }>
+
+    return rows
+      .map((row) => this.getSession(row.session_id))
+      .filter((session): session is Session => session !== undefined)
+  }
+
   updateStatus(sessionId: string, status: SessionStatus): void {
     const session = this.getSession(sessionId)
     if (!session) return
@@ -760,9 +771,9 @@ export class SessionService {
   }
 
   addEvent(sessionId: string, type: SessionEventType, data?: Record<string, unknown>): SessionEvent {
+    // ensureSession guarantees the row exists. Reloading the whole session here (every event,
+    // artifact and finding) made each append slower as the session grew (B-09).
     this.ensureSession(sessionId)
-    const session = this.getSession(sessionId)
-    if (!session) throw new Error(`Session ${sessionId} not found`)
 
     const nextSequenceRow = this.sqlite
       .prepare(`SELECT COALESCE(MAX(sequence), -1) + 1 AS next_sequence FROM p2_session_events WHERE session_id = ?`)
@@ -2750,6 +2761,18 @@ export interface QualityGateReset {
   reason: string
   previousStatus: string
   createdAt: string
+}
+
+/**
+ * B-09: one stored row with invalid JSON used to make every read of its session throw, and with it
+ * getAllSessions, the runner and the stats (HTTP 500). The bad value is now reported in place.
+ */
+function parseStoredJson(text: string): unknown {
+  try {
+    return JSON.parse(text)
+  } catch {
+    return { unreadable: true, reason: 'stored JSON could not be parsed', length: text.length }
+  }
 }
 
 export function createSessionServiceStub(): SessionService {
