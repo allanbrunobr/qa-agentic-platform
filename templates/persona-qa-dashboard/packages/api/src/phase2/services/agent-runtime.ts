@@ -203,7 +203,12 @@ export class AgentRuntime {
         return { ...failed, stepIndex: step.order, agentId: profileOrAgentId, output: {}, durationMs: 0, success: false }
       }
 
-      const scopedProfile = this.scopeProfileToScenarioStep(profile, step)
+      // B-10: the contract step's timeout (and the orchestrator's "increase timeout" adaptation, which
+      // rewrites it) is the step deadline; the profile's timeout is only the default.
+      const scopedProfile = {
+        ...this.scopeProfileToScenarioStep(profile, step),
+        ...(typeof step.timeoutMs === 'number' && step.timeoutMs > 0 ? { timeoutMs: step.timeoutMs } : {}),
+      }
       const result = await this.executeStep(scopedProfile, {
         sessionId: String(context['sessionId'] ?? 'orchestrator-session'),
         messages: [{
@@ -577,24 +582,26 @@ export class AgentRuntime {
           Object.assign(accumulatedOutput, result.output as Record<string, unknown>)
         }
 
-        const completedFromToolOutput = this.completeFromToolOutputIfValid(
-          profile,
-          sessionId,
-          responseTextFromArtifacts(accumulatedOutput),
-          accumulatedOutput,
-          collectedFindings,
-          collectedEvidence,
-          expectedArtifacts,
-          startedAt,
-          'required_artifacts_produced_by_tool',
-          response.toolCalls,
-        )
-        if (completedFromToolOutput) return this.finishStep(sessionId, profile, completedFromToolOutput)
-
         toolResultMessages.push(
           `[Tool result for ${toolName} (${toolCallId})]: ${JSON.stringify(result.ok ? result.output : result.error)}`,
         )
       }
+
+      // B-10: checked once the whole batch has run. Checking after each call returned mid-batch and
+      // skipped the calls the model had already asked for, verifications included.
+      const completedFromToolOutput = this.completeFromToolOutputIfValid(
+        profile,
+        sessionId,
+        responseTextFromArtifacts(accumulatedOutput),
+        accumulatedOutput,
+        collectedFindings,
+        collectedEvidence,
+        expectedArtifacts,
+        startedAt,
+        'required_artifacts_produced_by_tool',
+        response.toolCalls,
+      )
+      if (completedFromToolOutput) return this.finishStep(sessionId, profile, completedFromToolOutput)
 
       if (response.text) {
         messages.push({ role: 'assistant', content: response.text })

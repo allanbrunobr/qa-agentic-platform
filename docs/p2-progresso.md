@@ -874,3 +874,22 @@ porque fica fora do repositório. Os verificadores passam a não acumular mais; 
 ser removidos à mão.
 
 **Verificação:** `typecheck` 0; `npm test` 0 (API 468, rotas `node:test` 27, web 121); `verify:release` 0; `test:e2e` 0. Diretórios `agentic-platform-*` no temporário: 245 antes do CI completo, 245 depois. A rodada anterior, sem a correção, tinha deixado 5.
+
+## B-10 · Outros bugs menores — feito (os 4 itens)
+
+| Item | Correção | Teste (falhou antes) |
+|---|---|---|
+| `step.timeoutMs` do contrato não virava deadline; a adaptação "aumentar timeout" não tinha efeito | `executeStep(agentId, step)` usa `step.timeoutMs` (quando definido) no perfil do passo | `step-timeout-and-batch.test.ts`: passo de 100 ms com ferramenta de 400 ms termina `timeout`. Antes: `completed` |
+| Retorno antecipado por artefato no meio do lote pulava as tool calls seguintes | O retorno antecipado é avaliado depois do lote inteiro | Mesmo arquivo: lote `[verifyFinanceDashboard, verifyReportsPage]`, a primeira já produz o artefato. Antes: só a primeira rodava |
+| Instalação não atômica: chave recusada reescrevia `.env.local` e lançava depois de copiar o template | `resolveInstallKeys` resolve e recusa antes de qualquer escrita | `hardening`: na recusa, o `.env.local` existente (com `PLAYWRIGHT_BASE_URL`) fica intacto e nada é copiado. Com o instalador antigo, os dois falharam |
+| `discover-local` apagava `install-metadata.generated.json` | `removeFilesContaining` aceita nomes preservados; o materializador preserva esse | `hardening`: instala, roda `discover-local` e o metadata continua lá. Antes: apagado |
+
+- O teste antigo "unsafe key and planted payload are not stored" contava com o comportamento não
+  atômico (reescrever o `.env.local`, removendo o payload plantado, e só então lançar). Ele virou
+  "a refused install leaves the existing .env.local untouched". O lançador já não faz `source` desse
+  arquivo (S-03), então manter o arquivo do usuário intacto é o comportamento certo.
+- **Para o Allan:** uma reinstalação que dá certo ainda reescreve o `.env.local` só com as chaves de
+  provedor, descartando outras variáveis do usuário. O relatório citava isso só no caso de falha;
+  preservar as variáveis numa reinstalação bem-sucedida é decisão de produto.
+
+**Verificação:** `typecheck` 0; `npm test` 0 (API 470, rotas `node:test` 27, web 121); `verify:release` 0; `test:e2e` 0.

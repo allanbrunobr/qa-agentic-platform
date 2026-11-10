@@ -1264,7 +1264,8 @@ export async function materializeLocalDiscovery(input: {
     'assertions',
     'workflow-contracts',
   ]) {
-    await confined.removeFilesContaining(realPath(path.join(adapterRoot, folder)), '.generated.')
+    // B-10: install-metadata.generated.json is written by install-local, not by discovery; keep it.
+    await confined.removeFilesContaining(realPath(path.join(adapterRoot, folder)), '.generated.', ['install-metadata.generated.json'])
   }
 
   const outputFiles: Array<readonly [string, unknown]> = [

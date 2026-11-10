@@ -175,7 +175,7 @@ export class ConfinedLocalFs {
    * Removes regular files whose names contain `marker` from a directory under `.agentic-qa`.
    * A missing directory is fine. A symlinked directory is refused, never followed.
    */
-  async removeFilesContaining(dirPath: string, marker: string): Promise<void> {
+  async removeFilesContaining(dirPath: string, marker: string, keep: readonly string[] = []): Promise<void> {
     const resolved = this.assertUnderLocalRoot(dirPath)
     const stat = await lstatOrNull(resolved)
     if (!stat) return
@@ -187,7 +187,7 @@ export class ConfinedLocalFs {
     const entries = await fs.readdir(resolved, { withFileTypes: true })
     for (const entry of entries) {
       // Dirent.isFile() is false for symlinks, so a planted link is left alone and never followed.
-      if (!entry.isFile() || !entry.name.includes(marker)) continue
+      if (!entry.isFile() || !entry.name.includes(marker) || keep.includes(entry.name)) continue
       await fs.rm(path.join(resolved, entry.name), { force: true })
     }
   }

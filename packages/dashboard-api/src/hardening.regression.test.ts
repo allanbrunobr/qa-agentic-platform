@@ -431,7 +431,8 @@ async function testInstaller() {
     process.env.ANTHROPIC_API_KEY = 'bad;value'
     const unsafeRepo = await mkdtemp(path.join(tmpdir(), 'agentic-unsafe-'))
     await mkdir(path.join(unsafeRepo, '.agentic-qa'), { recursive: true })
-    await writeFile(path.join(unsafeRepo, '.agentic-qa', '.env.local'), 'echo PLANTED\n')
+    const userEnv = 'PLAYWRIGHT_BASE_URL=http://127.0.0.1:4100\n'
+    await writeFile(path.join(unsafeRepo, '.agentic-qa', '.env.local'), userEnv)
     let unsafeRefused = false
     try {
       await installLocalPackage({ repoPath: unsafeRepo })
@@ -440,7 +441,10 @@ async function testInstaller() {
     }
     const unsafeEnv = await readFile(path.join(unsafeRepo, '.agentic-qa', '.env.local'), 'utf8')
     assert(unsafeRefused, 'install refuses an unsafe key')
-    assert(!unsafeEnv.includes('bad;value') && !unsafeEnv.includes('PLANTED'), 'unsafe key and planted payload are not stored')
+    // B-10: the refusal happens before any write, so the install is all or nothing.
+    assert(!unsafeEnv.includes('bad;value'), 'the unsafe key is not stored')
+    assert(unsafeEnv === userEnv, 'a refused install leaves the existing .env.local, and the user variables in it, untouched')
+    assert(!(await exists(path.join(unsafeRepo, '.agentic-qa', 'package.json'))), 'a refused install copies nothing')
   } finally {
     globalThis.fetch = previousFetch
     process.chdir(previousCwd)
@@ -700,6 +704,31 @@ async function testInstalledSourceMatchesTemplate() {
   }
 }
 
+/** B-10: discover-local cleared every *.generated.* file in adapter/config, the install metadata too. */
+async function testDiscoveryKeepsInstallMetadata() {
+  const keys = ['ANTHROPIC_API_KEY_OVERRIDE', 'OPENAI_API_KEY_OVERRIDE', 'AGENTIC_QA_SKIP_KEY_VALIDATION']
+  const savedEnv = Object.fromEntries(keys.map((key) => [key, process.env[key]]))
+  process.env.ANTHROPIC_API_KEY_OVERRIDE = ''
+  process.env.OPENAI_API_KEY_OVERRIDE = ''
+  process.env.AGENTIC_QA_SKIP_KEY_VALIDATION = '1'
+  const repo = await storefrontCopy('metadata')
+  try {
+    await installLocalPackage({ repoPath: repo })
+    const metadataPath = path.join(repo, '.agentic-qa', 'adapter', 'config', 'install-metadata.generated.json')
+    assert(await exists(metadataPath), 'install writes install-metadata.generated.json')
+    const discovered = await runDiscoverLocal(repo)
+    assert(discovered.status === 0, `discover-local succeeds on the installed copy: ${discovered.stderr.slice(-300)}`)
+    assert(await exists(metadataPath), 'discover-local keeps install-metadata.generated.json')
+    assert(await exists(path.join(repo, '.agentic-qa', 'adapter', 'config', 'discovery-report.generated.json')), 'discover-local still rewrites its own generated config')
+  } finally {
+    for (const key of keys) {
+      if (savedEnv[key] === undefined) delete process.env[key]
+      else process.env[key] = savedEnv[key]
+    }
+    await rm(repo, { recursive: true, force: true })
+  }
+}
+
 console.log('Running hardening regression tests...\n')
 await testControlPlane()
 await testControlPlaneRebinding()
@@ -710,6 +739,7 @@ await testInstaller()
 await testDiscoveryConfinement()
 await testProviderKeyIsolation()
 await testInstalledSourceMatchesTemplate()
+await testDiscoveryKeepsInstallMetadata()
 if (failed > 0) {
   console.error(`\n${failed} hardening check(s) failed`)
   process.exit(1)

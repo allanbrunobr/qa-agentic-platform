@@ -325,7 +325,27 @@ async function resolveOpenAIKey(repoPath: string): Promise<{
   return { key: '', source: 'missing' }
 }
 
-async function patchInstalledRuntime(installedPath: string, repoPath: string) {
+type InstallKeys = {
+  resolvedAnthropic: Awaited<ReturnType<typeof resolveAnthropicKey>>
+  resolvedOpenAI: Awaited<ReturnType<typeof resolveOpenAIKey>>
+}
+
+/**
+ * B-10: resolves and checks the provider keys before the installer writes anything. A refused key
+ * used to be found only after the template was copied and .env.local rewritten, leaving a half-done
+ * install with the user's previous .env.local replaced.
+ */
+async function resolveInstallKeys(repoPath: string): Promise<InstallKeys> {
+  const resolvedAnthropic = await resolveAnthropicKey(repoPath)
+  const resolvedOpenAI = await resolveOpenAIKey(repoPath)
+  const refusedKey = unsafeEnvKey('ANTHROPIC_API_KEY', resolvedAnthropic.key) ?? unsafeEnvKey('OPENAI_API_KEY', resolvedOpenAI.key)
+  if (refusedKey) {
+    throw new Error(`refusing unsafe ${refusedKey}`)
+  }
+  return { resolvedAnthropic, resolvedOpenAI }
+}
+
+async function patchInstalledRuntime(installedPath: string, keys: InstallKeys) {
   const rootPackageJsonPath = path.join(installedPath, 'package.json')
   const envLocalPath = path.join(installedPath, '.env.local')
   const envExamplePath = path.join(installedPath, '.env.example')
@@ -333,18 +353,12 @@ async function patchInstalledRuntime(installedPath: string, repoPath: string) {
   const npmrcPath = path.join(installedPath, '.npmrc')
   const shimDir = path.join(installedPath, 'vendor', 'better-sqlite3-shim')
 
-  const resolvedAnthropic = await resolveAnthropicKey(repoPath)
-  const resolvedOpenAI = await resolveOpenAIKey(repoPath)
-  const refusedAnthropic = unsafeEnvKey('ANTHROPIC_API_KEY', resolvedAnthropic.key)
-  const refusedOpenAI = unsafeEnvKey('OPENAI_API_KEY', resolvedOpenAI.key)
-  const refusedKey = refusedAnthropic ?? refusedOpenAI
-  const resolvedAnthropicKey = refusedAnthropic ? '' : resolvedAnthropic.key
-  const resolvedOpenAIKey = refusedOpenAI ? '' : resolvedOpenAI.key
+  const { resolvedAnthropic, resolvedOpenAI } = keys
+  const resolvedAnthropicKey = resolvedAnthropic.key
+  const resolvedOpenAIKey = resolvedOpenAI.key
   const anthropicValidation = resolvedAnthropicKey
     ? await validateAnthropicApiKey(resolvedAnthropicKey)
-    : { ok: false, message: refusedKey === 'ANTHROPIC_API_KEY'
-      ? 'Anthropic key was refused because it contained unsafe characters.'
-      : 'Anthropic key not configured during install.' }
+    : { ok: false, message: 'Anthropic key not configured during install.' }
   await fs.writeFile(
     envExamplePath,
     [
@@ -366,9 +380,6 @@ async function patchInstalledRuntime(installedPath: string, repoPath: string) {
   )
   // writeFile only applies `mode` when it creates the file.
   await fs.chmod(envLocalPath, 0o600)
-  if (refusedKey) {
-    throw new Error(`refusing unsafe ${refusedKey}`)
-  }
 
   // Keep secrets, local state, and dependencies out of the host repository's git.
   await fs.writeFile(
@@ -567,6 +578,8 @@ export async function installLocalPackage(input: { repoPath: string }) {
   const templateRoot = await resolveTemplateRoot()
   const installedPath = await resolveConfinedInstallPath(input.repoPath)
   const repoRoot = path.dirname(installedPath)
+  // Before any write: a refused key stops the install with nothing copied or rewritten (B-10).
+  const installKeys = await resolveInstallKeys(repoRoot)
   await fs.mkdir(installedPath, { recursive: true })
 
   for (const relativePath of COPY_ROOT_FILES) {
@@ -587,7 +600,7 @@ export async function installLocalPackage(input: { repoPath: string }) {
 
   await writeInstalledDocs(installedPath)
 
-  const runtimePatchResult = await patchInstalledRuntime(installedPath, repoRoot)
+  const runtimePatchResult = await patchInstalledRuntime(installedPath, installKeys)
 
   const metadataPath = path.join(installedPath, 'adapter', 'config', 'install-metadata.generated.json')
   const launcherPath = path.join(installedPath, 'scripts', 'start-local-dashboard.generated.sh')
