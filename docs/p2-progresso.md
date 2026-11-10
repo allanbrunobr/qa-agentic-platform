@@ -1476,3 +1476,13 @@ de teste como um argumento só e o vitest não achou teste (exit 1 sem rodar nad
 caminhos separados antes de contar como morta. Restaurado e conferido com `cmp`.
 
 **Verificação (rodada 8):** `audit:deps` 0; `lint` 0; `typecheck` 0; `build` 0; `npm test` 0 (API 493, rotas `node:test` 27, web 125); `verify:release` 0; `test:e2e` 0.
+
+## `pre-pr-contradicoes` (rodada 9, `4ad5b02`): 1 vivo, 9 refutados — corrigido
+
+| Achado | Correção | Teste (falhou antes) |
+|---|---|---|
+| #1 O `test:e2e` copia `examples/storefront` para a fixture com um filtro que só reconhecia `.agentic-qa`, `node_modules` e `dist` com um segmento antes. O `.agentic-qa` da raiz do exemplo, deixado pelo quick start do README, ia para a fixture; a chave do `.env.local` dele vence o override vazio do T-06 (a chave já gravada no alvo é mantida na reinstalação), e o portão de release podia ler a chave de quem desenvolve. O CI não pega, porque num checkout limpo o diretório não existe | `fixtureCopyFilter` (em `scripts/lib/storefront-runtime.mjs`) deixa de fora esses diretórios em qualquer profundidade, incluindo o topo, e é usado nas duas cópias (fixture e cópia quebrada) | `scripts/lib/storefront-runtime.test.mjs`, agora no `test:unit`: o filtro recusa `.agentic-qa`, `.agentic-qa/.env.local`, `node_modules` e `dist` no topo e aninhados, e copia o resto; uma cópia real com `fs.cpSync` de um exemplo com `.env.local` canário não leva o `.agentic-qa`. Com o regex antigo: 4 falhas |
+
+**Mutação:** tirar `.agentic-qa` da lista → 3 falhas (inclui a cópia real). Restaurado e conferido com `cmp`.
+
+**Verificação (rodada 9):** `audit:deps` 0; `lint` 0; `typecheck` 0; `build` 0; `npm test` 0 (API 493, rotas `node:test` 27, web 125, cópia da fixture 13 checagens); `verify:release` 0; `test:e2e` 0.

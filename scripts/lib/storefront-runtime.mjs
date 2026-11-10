@@ -18,6 +18,17 @@ const tsxLoader = path.join(repoRoot, 'node_modules/tsx/dist/loader.mjs')
 const LAUNCH_TIMEOUT_MS = Number(process.env.E2E_LAUNCH_TIMEOUT_MS ?? 15 * 60_000)
 const RUN_TIMEOUT_MS = Number(process.env.E2E_RUN_TIMEOUT_MS ?? 5 * 60_000)
 
+const GENERATED_DIRS = new Set(['.agentic-qa', 'node_modules', 'dist'])
+
+/**
+ * Copy filter for a fixture: leaves out generated directories at any depth, the top level included.
+ * A README quick start leaves examples/storefront/.agentic-qa behind, and its .env.local key would win
+ * over the empty provider override (the target's own key is kept on reinstall).
+ */
+export function fixtureCopyFilter(rootDir) {
+  return (source) => !path.relative(rootDir, source).split(/[\\/]/).some((segment) => GENERATED_DIRS.has(segment))
+}
+
 export function createLogger(tag) {
   return (message) => console.log(`[${tag}] ${message}`)
 }
@@ -108,7 +119,7 @@ export async function startStorefrontRuntime({ log, keepDir = false }) {
   try {
     fs.cpSync(exampleDir, targetDir, {
       recursive: true,
-      filter: (source) => !/[\\/](\.agentic-qa|node_modules|dist)([\\/]|$)/.test(path.relative(exampleDir, source)),
+      filter: fixtureCopyFilter(exampleDir),
     })
     log(`working copy: ${targetDir}`)
     runCli('install-local')
@@ -231,7 +242,7 @@ export async function startStorefrontRuntime({ log, keepDir = false }) {
       const brokenDir = path.join(workDir, 'storefront-broken')
       fs.cpSync(targetDir, brokenDir, {
         recursive: true,
-        filter: (source) => !/[\\/](\.agentic-qa|node_modules|dist)([\\/]|$)/.test(path.relative(targetDir, source)),
+        filter: fixtureCopyFilter(targetDir),
       })
       breakIndexHtml(brokenDir)
       const brokenPort = await freePort()
