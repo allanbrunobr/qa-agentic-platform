@@ -293,3 +293,45 @@ O módulo do S-08 não existia antes. Por mutação, em cada uma das quatro prot
 
 **Verificação:** `typecheck` 0; `npm test` 0 (API 445, web 120); `verify:release` 0; `test:e2e` 0. O e2e
 inclui o passo do B-02, que usa `targetBaseUrl` http real e continua passando.
+
+## S-09, S-10 e S-11 · Discovery sobre repositório não confiável — feito
+
+**O que mudou**
+
+- **S-09** (`static-frontend-scanner.ts`): a regex `/^(?:[a-z]+-[a-z0-9/.[\]]+\s*){2,}$/`, com
+  quantificadores aninhados ambíguos, virou uma checagem token a token, sem ambiguidade, limitada a
+  300 caracteres. A outra regex da mesma função foi medida com quatro tipos de entrada ambígua até
+  1000 repetições e é linear.
+- **S-10:**
+  - `generic-discovery-provider.ts`: a varredura não segue symlinks (`Dirent.isFile`), ignora uma
+    raiz que seja symlink, pula `.git` e `.agentic-qa`, para em 2000 arquivos e não lê arquivos
+    acima de 256 KB.
+  - `static-frontend-scanner.ts`: a raiz candidata do frontend é verificada com `lstat`; um
+    symlink é ignorado.
+- **S-11** (`local-discovery-materializer.ts`): a mensagem do stub TS gerado, que leva rotas, nomes
+  de arquivo e URLs do alvo, é emitida como literal JSON. Aspa, crase ou `${` do alvo não viram
+  código.
+
+**Teste:** `packages/dashboard-api/src/discovery-hardening.test.ts` (novo, no `test:unit`), com 11
+checagens:
+
+- reconhecimento de classes utilitárias preservado;
+- rótulo adversarial de 1000 caracteres em 0,0 ms e página com título adversarial em 9 ms;
+- raiz symlink não varrida;
+- rota real ainda descoberta;
+- arquivo symlink não lido;
+- arquivo grande não lido;
+- stub não executa o texto do alvo e o preserva na mensagem.
+
+**Antes da correção e mutações:**
+
+- No código antigo, o teste ficou preso na regex por mais de 120 s e foi interrompido. É a prova do
+  ReDoS.
+- Mutação do S-10 (aceitar symlink e voltar ao `stat`): 2 checagens falham. Mutação só do limite
+  de tamanho: 1 falha.
+- Mutação do S-11 (voltar às aspas simples): 2 falham.
+- A checagem de tamanho estava vazia na primeira versão, porque o arquivo grande não era um
+  servidor Express e nunca teria a rota extraída. A fixture foi corrigida e agora distingue.
+
+**Verificação:** `typecheck` 0; `npm test` 0 (as 11 checagens novas no `test:unit`; API 445, web 120);
+`verify:release` 0, incluindo os verificadores do scanner e da matriz de domínios; `test:e2e` 0.

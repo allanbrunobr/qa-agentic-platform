@@ -1018,10 +1018,12 @@ export async function switchHostRole() {
 `
 }
 
-function buildCapabilityRuntimeStub(capabilities: MaterializedCapability[]) {
+export function buildCapabilityRuntimeStub(capabilities: MaterializedCapability[]) {
   const handlers = capabilities
+    // S-11: the message carries target-controlled text (routes, file names, URLs). It is emitted as a
+    // JSON string literal, so no quote or backtick in that text can become code.
     .map((capability) => `  ${JSON.stringify(capability.id)}: async () => {
-    throw new Error('TODO: implement ${capability.id}${capability.routeHint ? ` using route ${capability.routeHint}` : ''}${formatCapabilityGraphHintMessage(capability)}.')
+    throw new Error(${JSON.stringify(`TODO: implement ${capability.id}${capability.routeHint ? ` using route ${capability.routeHint}` : ''}${formatCapabilityGraphHintMessage(capability)}.`)})
   },`)
     .join('\n')
 

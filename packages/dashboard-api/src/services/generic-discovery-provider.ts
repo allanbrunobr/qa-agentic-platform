@@ -503,12 +503,8 @@ async function extractBackendEndpointCandidatesFromFiles(repoPath: string, sourc
   const existingRelativePaths = new Set(sourceFiles.map((filePath) => normalizeRepoRelativePath(repoPath, filePath)))
 
   for (const filePath of sourceFiles) {
-    let content: string
-    try {
-      content = await fs.readFile(filePath, 'utf8')
-    } catch {
-      continue
-    }
+    const content = await readBoundedSourceFile(filePath)
+    if (content === null) continue
     const relativePath = normalizeRepoRelativePath(repoPath, filePath)
     const imports = extractBackendImports(relativePath, content, existingRelativePaths)
     const endpoints = extractBackendEndpointsFromContent(content)
@@ -691,8 +687,17 @@ async function listSourceFiles(
   return Array.from(new Set(files)).slice(0, 250)
 }
 
-async function walkSource(root: string): Promise<string[]> {
-  const files: string[] = []
+// S-10: the repository is untrusted. The walk never follows symlinks (Dirent.isFile/isDirectory are
+// false for links), skips a root that is itself a link, ignores VCS and generated folders, and stops
+// at a file count; reads skip files over a size limit instead of loading them whole.
+const SKIPPED_DIRS = new Set(['node_modules', 'dist', 'build', 'coverage', '.git', '.agentic-qa'])
+const MAX_WALKED_FILES = 2_000
+const MAX_SOURCE_FILE_BYTES = 256 * 1024
+
+async function walkSource(root: string, files: string[] = []): Promise<string[]> {
+  if (files.length >= MAX_WALKED_FILES) return files
+  const rootStat = await fs.lstat(root).catch(() => null)
+  if (!rootStat || rootStat.isSymbolicLink() || !rootStat.isDirectory()) return files
   let entries: import('node:fs').Dirent[]
   try {
     entries = await fs.readdir(root, { withFileTypes: true })
@@ -701,25 +706,34 @@ async function walkSource(root: string): Promise<string[]> {
   }
 
   for (const entry of entries) {
+    if (files.length >= MAX_WALKED_FILES) break
     const entryPath = path.join(root, entry.name)
     if (entry.isDirectory()) {
-      if (['node_modules', 'dist', 'build', 'coverage'].includes(entry.name)) continue
-      files.push(...await walkSource(entryPath))
-    } else if (/\.(tsx|ts|jsx|js|mjs|cjs|vue|svelte|html|css|py|go|rs)$/.test(entry.name)) {
+      if (SKIPPED_DIRS.has(entry.name)) continue
+      await walkSource(entryPath, files)
+    } else if (entry.isFile() && /\.(tsx|ts|jsx|js|mjs|cjs|vue|svelte|html|css|py|go|rs)$/.test(entry.name)) {
       files.push(entryPath)
     }
   }
   return files
 }
 
+/** Reads a source file the walk returned, or null when it is not a small regular file. */
+async function readBoundedSourceFile(filePath: string): Promise<string | null> {
+  const stat = await fs.lstat(filePath).catch(() => null)
+  if (!stat || !stat.isFile() || stat.size > MAX_SOURCE_FILE_BYTES) return null
+  try {
+    return await fs.readFile(filePath, 'utf8')
+  } catch {
+    return null
+  }
+}
+
 async function readSourcePreview(sourceFiles: string[]): Promise<string> {
   const chunks: string[] = []
   for (const filePath of sourceFiles.slice(0, 30)) {
-    try {
-      chunks.push(await fs.readFile(filePath, 'utf8'))
-    } catch {
-      // ignore unreadable source file
-    }
+    const content = await readBoundedSourceFile(filePath)
+    if (content !== null) chunks.push(content)
   }
   return chunks.join('\n').slice(0, 80_000)
 }
