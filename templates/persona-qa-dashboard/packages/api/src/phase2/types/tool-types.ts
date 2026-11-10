@@ -59,6 +59,11 @@ export interface ToolContext {
   agentRole?: string
   artifacts?: Record<string, unknown>
   executionTarget?: ExecutionTarget
+  /**
+   * Aborted when the step ends (timeout, interruption, or normal completion). Tools must not act on
+   * the page or store artifacts after it fires: the step they belonged to is over (B-06).
+   */
+  signal?: AbortSignal
 }
 
 export type ToolHandler = (input: unknown, context: ToolContext) => Promise<ToolResult>

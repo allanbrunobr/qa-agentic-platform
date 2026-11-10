@@ -93,6 +93,8 @@ class ModelDeadlineExceededError extends Error {
 export class AgentRuntime {
   private readonly agents = new Map<string, AgentProfile>()
   private readonly pendingToolCalls = new Map<string, Map<string, PendingToolCall>>()
+  /** One AbortController per running step, keyed by session; aborted in finishStep (B-06). */
+  private readonly stepAborts = new Map<string, AbortController>()
 
   constructor(
     private readonly provider?: ModelProvider,
@@ -236,6 +238,11 @@ export class AgentRuntime {
 
     const profile = profileOrAgentId
     const { sessionId, page, executionTarget } = stepOrContext as StepContext
+    // B-06: everything this step starts (tools, model calls) gets this signal, and finishStep aborts
+    // it, so work that outlives the step (after a timeout) cannot keep acting for it.
+    this.stepAborts.get(sessionId)?.abort()
+    const stepAbort = new AbortController()
+    this.stepAborts.set(sessionId, stepAbort)
     const messages = [...(stepOrContext as StepContext).messages]
     const collectedFindings: AgentStepOutput['findings'] = []
     const collectedEvidence: string[] = []
@@ -322,7 +329,7 @@ export class AgentRuntime {
           agentRole: profile.role,
           payload: { round, toolCount: toolDefs.length },
         })
-        response = await this.chatBeforeDeadline(messages, toolDefs, profile, deadline)
+        response = await this.chatBeforeDeadline(messages, toolDefs, profile, deadline, stepAbort.signal)
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         if (error instanceof ModelDeadlineExceededError) {
@@ -479,6 +486,7 @@ export class AgentRuntime {
           agentRole: profile.role,
           artifacts: accumulatedOutput,
           ...(executionTarget ? { executionTarget } : {}),
+          signal: stepAbort.signal,
         }
 
         let result: ToolResult
@@ -601,6 +609,12 @@ export class AgentRuntime {
     profile: AgentProfile,
     output: AgentStepOutput,
   ): Promise<AgentStepOutput> {
+    // The step is over, whatever the outcome: stop any tool or model call still running for it (B-06).
+    const stepAbort = this.stepAborts.get(sessionId)
+    if (stepAbort) {
+      stepAbort.abort()
+      this.stepAborts.delete(sessionId)
+    }
     await this.hooks.emit('beforeStepComplete', {
       sessionId,
       agentRole: profile.role,
@@ -780,6 +794,7 @@ export class AgentRuntime {
     toolDefs: ToolDefinition[],
     profile: AgentProfile,
     deadline: number,
+    signal?: AbortSignal,
   ) {
     const remainingMs = deadline - Date.now()
     if (remainingMs <= 0) {
@@ -793,7 +808,7 @@ export class AgentRuntime {
     let timeout: ReturnType<typeof setTimeout> | undefined
     try {
       return await Promise.race([
-        this.provider!.chat(messages, toolDefs, { maxTokens: 4096, model: resolvedModel }),
+        this.provider!.chat(messages, toolDefs, { maxTokens: 4096, model: resolvedModel, ...(signal ? { signal } : {}) }),
         new Promise<never>((_, reject) => {
           timeout = setTimeout(() => reject(new ModelDeadlineExceededError(profile.timeoutMs)), remainingMs)
         }),

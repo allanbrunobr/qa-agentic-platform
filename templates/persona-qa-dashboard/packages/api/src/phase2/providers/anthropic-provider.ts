@@ -46,7 +46,8 @@ interface AnthropicResponse {
 
 export class AnthropicProvider implements ModelProvider {
   private readonly config: AnthropicProviderConfig
-  private client: { messages: { create: (params: unknown) => Promise<AnthropicResponse> } } | null = null
+  // The SDK's create(params, options) accepts { signal } to cancel the HTTP request.
+  private client: { messages: { create: (params: unknown, options?: { signal?: AbortSignal }) => Promise<AnthropicResponse> } } | null = null
 
   constructor(config: AnthropicProviderConfig) {
     this.config = config
@@ -99,7 +100,9 @@ export class AnthropicProvider implements ModelProvider {
       params.temperature = options.temperature
     }
 
-    const response = await client.messages.create(params)
+    const response = options?.signal
+      ? await client.messages.create(params, { signal: options.signal })
+      : await client.messages.create(params)
     return fromAnthropicResponse(response)
   }
 }

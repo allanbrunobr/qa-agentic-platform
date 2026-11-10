@@ -138,6 +138,8 @@ export interface ModelProviderOptions {
   maxTokens?: number
   temperature?: number
   model?: string
+  /** Aborted when the step times out or ends; providers pass it to the HTTP request (B-06). */
+  signal?: AbortSignal
 }
 
 export interface ModelProvider {

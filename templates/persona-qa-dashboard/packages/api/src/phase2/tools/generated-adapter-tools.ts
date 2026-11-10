@@ -10,7 +10,7 @@ import {
 } from '../services/generated-adapter-runtime.js'
 import { confineEndpointUrl, confinePackageBin } from './endpoint-confinement.js'
 
-type FrontendToolContext = Pick<ToolContext, 'page' | 'executionTarget'>
+type FrontendToolContext = Pick<ToolContext, 'page' | 'executionTarget' | 'signal'>
 
 /** The repository the run targets: execution_context.targetRepoPath first, then the launch default. */
 function targetRepoPathFor(context: ToolContext | undefined): string {
@@ -413,7 +413,7 @@ const openPrimaryRouteHandler = async (
   capability: { id?: string; routeHint?: string } | undefined,
   context: FrontendToolContext,
 ): Promise<ToolResult> => {
-  const page = requirePage(context.page)
+  const page = requirePage(context.page, context.signal)
   const route = normalizeRouteHint(capability?.routeHint, context.executionTarget?.baseUrl)
   await page.goto?.(route, { waitUntil: 'domcontentloaded' })
 
@@ -438,7 +438,7 @@ const fillCustomerEmailHandler = async (
   capability: { id?: string; routeHint?: string; purpose?: string } | undefined,
   context: FrontendToolContext,
 ): Promise<ToolResult> => {
-  const page = requirePage(context.page)
+  const page = requirePage(context.page, context.signal)
   await ensurePageReady(page, capability?.routeHint, context)
   const inputRecord = asRecord(input)
   const fieldLabel = extractQuotedLabel(capability?.purpose)
@@ -487,7 +487,7 @@ const addCartItemHandler = async (
   capability: { id?: string; routeHint?: string; purpose?: string; sourceHint?: string } | undefined,
   context: FrontendToolContext,
 ): Promise<ToolResult> => {
-  const page = requirePage(context.page)
+  const page = requirePage(context.page, context.signal)
   await ensurePageReady(page, capability?.routeHint, context)
   const clicked = await clickFirst(page, {
     exactLabel: extractQuotedLabel(capability?.purpose),
@@ -514,7 +514,7 @@ const submitOrderHandler = async (
   capability: { id?: string; routeHint?: string; purpose?: string; sourceHint?: string } | undefined,
   context: FrontendToolContext,
 ): Promise<ToolResult> => {
-  const page = requirePage(context.page)
+  const page = requirePage(context.page, context.signal)
   await ensurePageReady(page, capability?.routeHint, context)
   const clicked = await clickFirst(page, {
     exactLabel: extractQuotedLabel(capability?.purpose),
@@ -542,7 +542,7 @@ const interactWithPrimaryActionHandler = async (
   capability: { id?: string; routeHint?: string; purpose?: string; sourceHint?: string } | undefined,
   context: FrontendToolContext,
 ): Promise<ToolResult> => {
-  const page = requirePage(context.page)
+  const page = requirePage(context.page, context.signal)
   await ensurePageReady(page, capability?.routeHint, context)
   const clicked = await clickFirst(page, {
     exactLabel: extractQuotedLabel(capability?.purpose),
@@ -569,7 +569,7 @@ const verifyPrimaryFeedbackHandler = async (
   capability: { routeHint?: string } | undefined,
   context: FrontendToolContext,
 ): Promise<ToolResult> => {
-  const page = requirePage(context.page)
+  const page = requirePage(context.page, context.signal)
   await ensurePageReady(page, capability?.routeHint, context)
   const feedback = await waitForVisibleText(page, SUCCESS_FEEDBACK_SELECTORS, FEEDBACK_WAIT_MS)
 
@@ -603,7 +603,7 @@ const captureScreenshotHandler = async (
   capability: { routeHint?: string } | undefined,
   context: FrontendToolContext,
 ): Promise<ToolResult> => {
-  const page = requirePage(context.page)
+  const page = requirePage(context.page, context.signal)
   await ensurePageReady(page, capability?.routeHint, context)
   const screenshot = await page.screenshot?.({ fullPage: true })
   const byteLength = screenshot instanceof Uint8Array ? screenshot.byteLength : null
@@ -660,11 +660,46 @@ function isReadOnlyFrontendCapability(capabilityId: string): boolean {
   return /verify|assert|capture|screenshot|open|navigate/i.test(capabilityId)
 }
 
-function requirePage(value: unknown): PageLike {
+function requirePage(value: unknown, signal?: AbortSignal): PageLike {
   if (!isRecord(value)) {
     throw new Error('Generated frontend capability requires a Playwright page context.')
   }
-  return value as PageLike
+  if (!signal) return value as PageLike
+  // Every page and locator method checks the signal, so an already-ended step is refused on first use.
+  return guardAgainstAbort(value, signal) as PageLike
+}
+
+class StepAbortedError extends Error {
+  readonly code = 'step_aborted'
+  constructor() {
+    super('The step this tool belonged to has already ended; the page was not touched.')
+    this.name = 'StepAbortedError'
+  }
+}
+
+function throwIfStepAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) throw new StepAbortedError()
+}
+
+/**
+ * B-06: wraps the page (and the locators it returns) so every method call first checks the step's
+ * signal. A tool still running after its step timed out cannot click, fill or navigate any more, even
+ * though the page object is shared with the retry that follows.
+ */
+function guardAgainstAbort<T extends object>(target: T, signal: AbortSignal): T {
+  return new Proxy(target, {
+    get(object, property, receiver) {
+      const value = Reflect.get(object, property, receiver)
+      if (typeof value !== 'function') return value
+      return (...args: unknown[]) => {
+        throwIfStepAborted(signal)
+        const result = (value as (...callArgs: unknown[]) => unknown).apply(object, args)
+        return result && typeof result === 'object' && !(result instanceof Promise) && typeof (result as { then?: unknown }).then !== 'function'
+          ? guardAgainstAbort(result as object, signal)
+          : result
+      }
+    },
+  })
 }
 
 async function ensurePageReady(page: PageLike, routeHint: string | undefined, context: FrontendToolContext): Promise<void> {

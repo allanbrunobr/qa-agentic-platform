@@ -85,6 +85,7 @@ export class OpenAIProvider implements ModelProvider {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(payload),
+      ...(options?.signal ? { signal: options.signal } : {}),
     })
 
     if (!response.ok) {

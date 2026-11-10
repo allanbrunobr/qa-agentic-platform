@@ -17,6 +17,18 @@ export interface CaptureScreenshotInput {
   fullPage?: boolean
 }
 
+/**
+ * B-06: once the step that called a tool has ended (timeout or not), the tool must not store evidence
+ * into it. Checked before touching the page and again right before writing.
+ */
+function stepAborted(context: ToolContext): ToolResult | null {
+  if (!context.signal?.aborted) return null
+  return {
+    ok: false,
+    error: { code: 'step_aborted', message: 'The step this tool belonged to has already ended; no evidence was stored.', retryable: false },
+  }
+}
+
 export function makeCaptureScreenshotHandler(sessionService: SessionService): ToolHandler {
   return async (input: unknown, context: ToolContext): Promise<ToolResult> => {
     const { description, fullPage } = input as CaptureScreenshotInput
@@ -30,6 +42,9 @@ export function makeCaptureScreenshotHandler(sessionService: SessionService): To
     if (!context.sessionId) {
       return { ok: false, error: { code: 'missing_context', message: 'sessionId is required for captureScreenshot', retryable: false } }
     }
+
+    const abortedBefore = stepAborted(context)
+    if (abortedBefore) return abortedBefore
 
     try {
       const page = context.page as EvidencePage
@@ -45,6 +60,8 @@ export function makeCaptureScreenshotHandler(sessionService: SessionService): To
       }
 
       const buffer = await page.screenshot({ fullPage: fullPage ?? false })
+      const abortedAfterCapture = stepAborted(context)
+      if (abortedAfterCapture) return abortedAfterCapture
       const filePath = `screenshots/${context.sessionId}/${Date.now()}.png`
       const absolutePath = resolvePhase2ArtifactPath(filePath)
       await mkdir(path.dirname(absolutePath), { recursive: true })
@@ -102,9 +119,14 @@ export function makeCollectDomSnippetHandler(sessionService: SessionService): To
       return { ok: false, error: { code: 'missing_context', message: 'sessionId is required for collectDomSnippet', retryable: false } }
     }
 
+    const abortedBefore = stepAborted(context)
+    if (abortedBefore) return abortedBefore
+
     try {
       const page = context.page as { locator: (sel: string) => { innerHTML: () => Promise<string> } }
       const html = await page.locator(selector).innerHTML()
+      const abortedAfterRead = stepAborted(context)
+      if (abortedAfterRead) return abortedAfterRead
 
       const artifact = sessionService.storeArtifact(context.sessionId, {
         type: 'dom_snippet',
@@ -155,6 +177,9 @@ export function makeRecordArtifactHandler(sessionService: SessionService): ToolH
     if (!context.sessionId) {
       return { ok: false, error: { code: 'missing_context', message: 'sessionId is required for recordArtifact', retryable: false } }
     }
+
+    const aborted = stepAborted(context)
+    if (aborted) return aborted
 
     try {
       const artifact = sessionService.storeArtifact(context.sessionId, {

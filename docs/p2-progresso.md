@@ -370,3 +370,42 @@ checagens:
 
 **Verificação:** `typecheck` 0; `npm test` 0 (as 9 checagens do motor no `test:unit`; API 449, web 120);
 `verify:release` 0; `test:e2e` 0.
+
+## B-06 · Timeout de passo não cancelava ferramenta nem chamada ao modelo — feito
+
+**O que mudou**
+
+- O timeout do passo era só um `Promise.race`: a ferramenta e a chamada ao modelo continuavam
+  rodando depois do passo marcado `timeout`, podiam seguir dirigindo a página compartilhada com o
+  retry e gravar evidência num passo já encerrado.
+- `AgentRuntime` cria um `AbortController` por passo. O `signal` vai para o provedor
+  (`ModelProviderOptions.signal`) e para a ferramenta (`ToolContext.signal`). `finishStep` aborta
+  o controlador em qualquer desfecho (timeout, erro ou conclusão normal).
+- Provedores: o Anthropic passa `{ signal }` como segundo argumento de `messages.create` (só
+  quando há signal, para não mudar a chamada sem ele); o OpenAI passa `signal` ao `fetch`.
+- Ferramentas de evidência (`captureScreenshot`, `collectDomSnippet`, `recordArtifact`) recusam com
+  `step_aborted` antes de tocar a página e de novo logo antes de gravar.
+- Ferramentas geradas de browser recebem a página embrulhada num `Proxy`: todo método da página,
+  e dos locators que ela devolve, checa o signal antes de agir e lança `StepAbortedError`
+  (`step_aborted`).
+
+**Testes**
+
+- `phase2/__tests__/step-cancellation.test.ts`, com 9 casos. Os 5 primeiros falharam todos no
+  código antigo.
+- Mutações, cada uma morta por pelo menos um caso: sem `abort` no `finishStep`; sem `signal` para
+  o modelo; sem `signal` para a ferramenta; sem a guarda das ferramentas de evidência; sem a
+  checagem no proxy; locators sem proxy; provedores Anthropic e OpenAI sem repassar o `signal`.
+- Duas dessas mutações (checagem no proxy e locators sem proxy) sobreviveram à primeira versão
+  dos testes, que só abortava antes de a ferramenta começar. Entraram dois casos com o aborto no
+  meio da ferramenta: um durante a leitura de `url()` antes da navegação e outro entre `count()`
+  e `fill()` no mesmo locator.
+- Uma terceira mutação (checagem do signal na entrada de `requirePage`) sobreviveu por ser
+  redundante com o proxy, que barra o primeiro uso da página. A linha foi retirada.
+- Três testes antigos do provedor Anthropic quebraram quando `create` passou a receber um segundo
+  argumento `undefined`. A chamada agora só leva o segundo argumento quando há signal.
+
+**Verificação:** `typecheck` 0; `npm test` 0 (API 458, web 120); `verify:release` 0; `test:e2e` 0.
+
+**Limite conhecido:** uma ação de Playwright já em andamento quando o passo termina (um `fill` em
+espera, por exemplo) não é interrompida no meio; o que o passo impede é a próxima ação.
