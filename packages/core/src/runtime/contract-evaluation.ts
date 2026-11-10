@@ -30,6 +30,8 @@ export interface AdapterContractEvaluation {
   missingArtifacts: string[]
   unexpectedArtifacts: string[]
   observedUnexpectedSteps: string[]
+  /** Steps that failed at least once and then completed: retries that worked, not violations. */
+  retriedSteps: string[]
   stepChecks: StepContractCheck[]
 }
 
@@ -87,34 +89,20 @@ export function buildAdapterContractEvaluation(
   if (!scenario) return null
 
   const expectedStepOrder = scenario.steps
-  const observedStepOrder = (session.events ?? [])
-    .filter((event) => event.type === 'step_started')
-    .map((event) => String(((event.payload ?? event.data ?? {}) as Record<string, unknown>).stepId ?? ''))
-    .filter(Boolean)
-
+  const { observedStepOrder, lastOutcomeByStep, retriedSteps } = summarizeStepOutcomes(session)
   const startedStepIds = new Set(observedStepOrder)
-  const completedStepIds = new Set(
-    (session.events ?? [])
-      .filter((event) => event.type === 'step_completed')
-      .map((event) => String(((event.payload ?? event.data ?? {}) as Record<string, unknown>).stepId ?? ''))
-      .filter(Boolean),
-  )
-  const failedStepIds = new Set(
-    (session.events ?? [])
-      .filter((event) => event.type === 'step_failed')
-      .map((event) => String(((event.payload ?? event.data ?? {}) as Record<string, unknown>).stepId ?? ''))
-      .filter(Boolean),
-  )
 
   const observedToolsByStep = deriveObservedToolsByStep(session)
   const stepChecks: StepContractCheck[] = expectedStepOrder.map((stepId, index) => {
     const stepDefinition = scenario.stepDefinitions?.find((item) => item.id === stepId)
     const observedTools = observedToolsByStep[stepId] ?? []
     const observedIndex = observedStepOrder.indexOf(stepId)
+    // The LAST attempt decides: a step that failed once and then completed on retry is complete.
+    const lastOutcome = lastOutcomeByStep.get(stepId)
     const status =
-      failedStepIds.has(stepId)
+      lastOutcome === 'failed'
         ? 'failed'
-        : completedStepIds.has(stepId)
+        : lastOutcome === 'complete'
           ? 'complete'
           : startedStepIds.has(stepId)
             ? 'running'
@@ -180,6 +168,32 @@ export function buildAdapterContractEvaluation(
     missingArtifacts,
     unexpectedArtifacts,
     observedUnexpectedSteps,
+    retriedSteps,
     stepChecks,
   }
+}
+
+/**
+ * Per-step outcome counting each step once (B-01): first step_started for the order, last
+ * step_completed/step_failed for the status, and the steps that failed and then recovered.
+ * Kept in step with the runtime template's summarizeStepOutcomes.
+ */
+export function summarizeStepOutcomes(session: Session) {
+  const observedStepOrder: string[] = []
+  const lastOutcomeByStep = new Map<string, 'complete' | 'failed'>()
+  const failedOnce = new Set<string>()
+
+  for (const event of session.events ?? []) {
+    const stepId = String(((event.payload ?? event.data ?? {}) as Record<string, unknown>).stepId ?? '')
+    if (!stepId) continue
+    if (event.type === 'step_started' && !observedStepOrder.includes(stepId)) observedStepOrder.push(stepId)
+    if (event.type === 'step_completed') lastOutcomeByStep.set(stepId, 'complete')
+    if (event.type === 'step_failed') {
+      lastOutcomeByStep.set(stepId, 'failed')
+      failedOnce.add(stepId)
+    }
+  }
+
+  const retriedSteps = Array.from(failedOnce).filter((stepId) => lastOutcomeByStep.get(stepId) === 'complete')
+  return { observedStepOrder, lastOutcomeByStep, retriedSteps }
 }

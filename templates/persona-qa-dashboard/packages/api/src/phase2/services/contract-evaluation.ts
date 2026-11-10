@@ -72,32 +72,19 @@ export function buildContractEvaluation(session: Session) {
 
   const contractSteps = workflowContract.steps;
   const expectedStepOrder = contractSteps.map((step) => step.id);
-  const observedStepOrder = session.events
-    .filter((event) => event.type === 'step_started')
-    .map((event) => String((event.payload ?? event.data ?? {}).stepId ?? ''))
-    .filter(Boolean);
+  const { observedStepOrder, lastOutcomeByStep, retriedSteps } = summarizeStepOutcomes(session.events);
   const startedStepIds = new Set(observedStepOrder);
-  const completedStepIds = new Set(
-    session.events
-      .filter((event) => event.type === 'step_completed')
-      .map((event) => String((event.payload ?? event.data ?? {}).stepId ?? ''))
-      .filter(Boolean),
-  );
-  const failedStepIds = new Set(
-    session.events
-      .filter((event) => event.type === 'step_failed')
-      .map((event) => String((event.payload ?? event.data ?? {}).stepId ?? ''))
-      .filter(Boolean),
-  );
   const observedToolsByStep = deriveObservedToolsByStep(session);
 
   const stepChecks = contractSteps.map((step) => {
     const observedTools = observedToolsByStep[step.id] ?? [];
     const observedIndex = observedStepOrder.indexOf(step.id);
+    // The LAST attempt decides: a step that failed once and then completed on retry is complete.
+    const lastOutcome = lastOutcomeByStep.get(step.id);
     const status =
-      failedStepIds.has(step.id)
+      lastOutcome === 'failed'
         ? 'failed'
-        : completedStepIds.has(step.id)
+        : lastOutcome === 'complete'
           ? 'complete'
           : startedStepIds.has(step.id)
             ? 'running'
@@ -165,7 +152,37 @@ export function buildContractEvaluation(session: Session) {
       unexpectedArtifacts,
       informationalArtifacts,
       observedUnexpectedSteps,
+      retriedSteps,
       stepChecks,
     },
   };
+}
+
+/**
+ * Per-step outcome from the session events, counting each step once (B-01 in
+ * docs/analise-20261109.md):
+ * - observedStepOrder keeps the FIRST step_started of each step, so a retry does not shift the
+ *   steps after it out of order;
+ * - lastOutcomeByStep keeps the LAST step_completed/step_failed of each step;
+ * - retriedSteps lists steps that failed at least once and then completed. That is the retry policy
+ *   working as designed: it is reported, not counted as a violation.
+ */
+export function summarizeStepOutcomes(events: Session['events']) {
+  const observedStepOrder: string[] = [];
+  const lastOutcomeByStep = new Map<string, 'complete' | 'failed'>();
+  const failedOnce = new Set<string>();
+
+  for (const event of events) {
+    const stepId = String(((event.payload ?? event.data ?? {}) as Record<string, unknown>).stepId ?? '');
+    if (!stepId) continue;
+    if (event.type === 'step_started' && !observedStepOrder.includes(stepId)) observedStepOrder.push(stepId);
+    if (event.type === 'step_completed') lastOutcomeByStep.set(stepId, 'complete');
+    if (event.type === 'step_failed') {
+      lastOutcomeByStep.set(stepId, 'failed');
+      failedOnce.add(stepId);
+    }
+  }
+
+  const retriedSteps = Array.from(failedOnce).filter((stepId) => lastOutcomeByStep.get(stepId) === 'complete');
+  return { observedStepOrder, lastOutcomeByStep, retriedSteps };
 }

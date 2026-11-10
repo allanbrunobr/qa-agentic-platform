@@ -100,6 +100,8 @@ Each scenario has a workflow contract: an ordered list of steps, each with a rol
 
 While a session is still running, the verdict is `contract_evaluating`.
 
+A step's status is its last attempt. A step that failed and then completed on retry counts as complete, keeps its place in the step order, and is listed in `retriedSteps` (informational, not a violation or drift). A step whose last attempt failed is a violation.
+
 ### Scenario quality gates
 
 Gates look at the last 5 final sessions of a scenario:

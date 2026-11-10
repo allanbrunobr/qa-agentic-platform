@@ -32,3 +32,31 @@ brutas (o `fetch` não deixa forjar `Host`) contra os dois servidores reais.
 
 **Verificação:** `typecheck` 0; `npm test` 0 (0 FAIL no hardening; API 380, web 120); `verify:release`
 0; `test:e2e` 0.
+
+## B-01 (a) · Retry que se recupera contava como `contract_violated` — feito
+
+**O que mudou** (nos dois avaliadores, o do template em `phase2/services/contract-evaluation.ts` e o
+do `packages/core`):
+
+- O status de cada passo passa a vir do **último** desfecho (`step_completed` ou `step_failed`).
+  Antes, qualquer `step_failed` já registrado tinha precedência.
+- A ordem observada conta cada passo uma vez, pelo primeiro `step_started`; um retry deixa de
+  empurrar os passos seguintes para "fora de ordem".
+- Os passos que falharam e depois completaram aparecem em `retriedSteps`, como informação, sem
+  contar como violação nem como drift.
+- `docs/architecture.md` explica a regra.
+
+**Testes**
+
+- Template, `phase2/__tests__/contract-evaluation-retries.test.ts`: 6 casos. Retry recuperado sai
+  `contract_compliant`; retry que continua falhando sai `contract_violated`; 3 runs com retry
+  recuperado deixam o gate `open`, e 3 runs que continuam falhando ainda deixam `restricted`.
+- Core, `packages/core/src/runtime/contract-evaluation.test.ts` (novo, no `test:unit`): 8
+  checagens. É o primeiro teste do `packages/core`.
+- **Mutação** (semântica antiga): 3 dos 6 testes do template e 4 das 8 checagens do core falham.
+
+**Verificação:** `typecheck` 0; `npm test` 0 (o teste do core roda no `test:unit`; API 386, web 120);
+`verify:release` 0; `test:e2e` 0.
+
+**Ainda aberto, parte (b) do B-01:** não existe saída do estado `restricted` para três violações
+reais. Fica como próximo item.
