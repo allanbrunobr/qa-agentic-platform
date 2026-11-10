@@ -172,9 +172,11 @@ If the adapter cannot infer application credentials (login users, seed data) fro
 This repository also includes a control-plane UI. Use it to review discovery and bootstrap output, promote adapters (`generated → reviewed → certified`), and start executions:
 
 ```bash
-npm run dev:api   # http://localhost:3101
-npm run dev:web   # http://localhost:4177
+npm run dev:api   # http://127.0.0.1:3101
+npm run dev:web   # http://127.0.0.1:4177
 ```
+
+Both processes bind to `127.0.0.1` only. Every route except `GET /health` requires the local token in `data/control-plane.token` (mode `0600`), sent as `Authorization: Bearer` or `X-Agentic-Token`. The web UI reads that file. CORS allows only `http://127.0.0.1:4177` and `http://localhost:4177`.
 
 ## Development and verification
 

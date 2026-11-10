@@ -1,10 +1,31 @@
 import { createServer } from 'node:http'
+import path from 'node:path'
+import { CONTROL_PLANE_HOST, ensureControlPlaneToken } from '../../dashboard-api/src/control-plane-guard.ts'
 
 const WEB_PORT = Number(process.env.AGENTIC_PLATFORM_WEB_PORT ?? 4177)
 const API_PORT = Number(process.env.AGENTIC_PLATFORM_API_PORT ?? 3101)
 const DEFAULT_REPO = process.env.AGENTIC_PLATFORM_DEFAULT_REPO ?? process.cwd()
 
-const html = `<!doctype html>
+function escapeHtmlText(value: unknown) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;')
+}
+
+export function buildDashboardHtml(input: {
+  apiPort: number
+  webPort: number
+  defaultRepo: string
+  token: string
+}) {
+  const API_PORT = input.apiPort
+  const WEB_PORT = input.webPort
+  const DEFAULT_REPO = escapeHtmlText(input.defaultRepo)
+  const CONTROL_PLANE_TOKEN_JS = JSON.stringify(input.token)
+  return `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
@@ -495,7 +516,7 @@ const html = `<!doctype html>
           </div>
           <div style="margin-top: 16px;">
             <h3>Rendered Review</h3>
-            <iframe id="reviewFrame"></iframe>
+            <iframe id="reviewFrame" sandbox=""></iframe>
           </div>
           <div style="margin-top: 16px;">
             <h3>Generated Adapter Editor</h3>
@@ -591,7 +612,8 @@ const html = `<!doctype html>
       </main>
     </div>
     <script>
-      const apiBase = 'http://localhost:${API_PORT}'
+      const controlPlaneToken = ${CONTROL_PLANE_TOKEN_JS}
+      const apiBase = 'http://127.0.0.1:${API_PORT}'
       const repoPath = document.getElementById('repoPath')
       const adapterSelect = document.getElementById('adapterSelect')
       const adapterHint = document.getElementById('adapterHint')
@@ -698,12 +720,15 @@ const html = `<!doctype html>
       }
 
       function statusPill(statusValue) {
-        return '<span class="pill ' + statusValue + '">' + statusValue + '</span>'
+        const safe = escapeHtml(statusValue)
+        return '<span class="pill ' + safe + '">' + safe + '</span>'
       }
 
       function contractPill(verdict) {
         if (!verdict) return '<span class="pill no_contract">no contract</span>'
-        return '<span class="pill ' + verdict + '">' + verdict.replace('contract_', '').replaceAll('_', ' ') + '</span>'
+        const safe = escapeHtml(verdict)
+        const label = escapeHtml(String(verdict).replace('contract_', '').replaceAll('_', ' '))
+        return '<span class="pill ' + safe + '">' + label + '</span>'
       }
 
       function sessionModePill(personaCount) {
@@ -765,7 +790,7 @@ const html = `<!doctype html>
         for (const [label, value] of metrics) {
           const el = document.createElement('div')
           el.className = 'metric'
-          el.innerHTML = '<div class="metric-label">' + label + '</div><div class="metric-value">' + value + '</div>'
+          el.innerHTML = '<div class="metric-label">' + escapeHtml(label) + '</div><div class="metric-value">' + escapeHtml(value) + '</div>'
           summary.appendChild(el)
         }
       }
@@ -986,16 +1011,16 @@ const html = `<!doctype html>
           const personaCount = execution.personas?.length || 0
           card.innerHTML =
             '<div class="run-card-header">' +
-              '<div class="run-card-title">' + execution.scenarioId + '</div>' +
+              '<div class="run-card-title">' + escapeHtml(execution.scenarioId) + '</div>' +
               '<div class="run-card-badges">' + sessionModePill(personaCount) + statusPill(execution.status) + '</div>' +
             '</div>' +
-            '<div class="project-badge">' + projectLabel(execution.hostProjectPath) + '</div>' +
+            '<div class="project-badge">' + escapeHtml(projectLabel(execution.hostProjectPath)) + '</div>' +
             '<div class="run-card-stats">' +
-              '<div class="run-card-stat"><strong>Adapter</strong>' + execution.adapterId + '</div>' +
-              '<div class="run-card-stat"><strong>Steps</strong>' + (execution.steps?.length || 0) + '</div>' +
-              '<div class="run-card-stat"><strong>Session</strong>' + shortId(execution.sessionId) + '</div>' +
+              '<div class="run-card-stat"><strong>Adapter</strong>' + escapeHtml(execution.adapterId) + '</div>' +
+              '<div class="run-card-stat"><strong>Steps</strong>' + escapeHtml(execution.steps?.length || 0) + '</div>' +
+              '<div class="run-card-stat"><strong>Session</strong>' + escapeHtml(shortId(execution.sessionId)) + '</div>' +
             '</div>' +
-            '<div class="run-card-footer">' + formatRelativeTime(execution.createdAt) + ' • ' + (execution.hostProjectPath || 'unknown-project') + '</div>'
+            '<div class="run-card-footer">' + escapeHtml(formatRelativeTime(execution.createdAt)) + ' • ' + escapeHtml(execution.hostProjectPath || 'unknown-project') + '</div>'
           card.onclick = async () => {
             selectedExecutionId = execution.executionId
             selectedSessionId = execution.sessionId || null
@@ -1044,17 +1069,17 @@ const html = `<!doctype html>
           const failedStep = lastFailedEvent?.data?.stepId || lastFailedEvent?.data?.step || null
           card.innerHTML =
             '<div class="run-card-header">' +
-              '<div class="run-card-title">' + session.scenarioId + '</div>' +
+              '<div class="run-card-title">' + escapeHtml(session.scenarioId) + '</div>' +
               '<div class="run-card-badges">' + sessionModePill(execution?.personas?.length || 0) + statusPill(session.status) + '</div>' +
             '</div>' +
             '<div class="run-card-badges">' + contractPill(contractVerdict === 'no_contract_evaluation' ? null : contractVerdict) + '</div>' +
             '<div class="run-card-stats">' +
-              '<div class="run-card-stat"><strong>Events</strong>' + (session.events?.length || 0) + '</div>' +
-              '<div class="run-card-stat"><strong>Artifacts</strong>' + Object.keys(session.artifacts || {}).length + '</div>' +
-              '<div class="run-card-stat"><strong>Findings</strong>' + ((session.findings || []).length) + '</div>' +
+              '<div class="run-card-stat"><strong>Events</strong>' + escapeHtml(session.events?.length || 0) + '</div>' +
+              '<div class="run-card-stat"><strong>Artifacts</strong>' + escapeHtml(Object.keys(session.artifacts || {}).length) + '</div>' +
+              '<div class="run-card-stat"><strong>Findings</strong>' + escapeHtml((session.findings || []).length) + '</div>' +
             '</div>' +
-            (failedStep ? '<div class="run-card-error">Failed at ' + failedStep + '</div>' : '') +
-            '<div class="run-card-footer">' + formatRelativeTime(session.startedAt) + '</div>'
+            (failedStep ? '<div class="run-card-error">Failed at ' + escapeHtml(failedStep) + '</div>' : '') +
+            '<div class="run-card-footer">' + escapeHtml(formatRelativeTime(session.startedAt)) + '</div>'
           card.onclick = async () => {
             selectedSessionId = session.id
             if (execution?.executionId) {
@@ -1100,15 +1125,15 @@ const html = `<!doctype html>
         executionDetail.innerHTML =
           '<div class="detail-summary">' +
             '<div class="detail-meta-grid">' +
-              '<div class="detail-meta"><div class="detail-meta-label">Execution ID</div><div class="detail-meta-value">' + shortId(execution.executionId) + '</div></div>' +
-              '<div class="detail-meta"><div class="detail-meta-label">Adapter</div><div class="detail-meta-value">' + execution.adapterId + '</div></div>' +
-              '<div class="detail-meta"><div class="detail-meta-label">Status</div><div class="detail-meta-value">' + execution.status + '</div></div>' +
-              '<div class="detail-meta"><div class="detail-meta-label">Session</div><div class="detail-meta-value">' + shortId(execution.sessionId) + '</div></div>' +
-              '<div class="detail-meta"><div class="detail-meta-label">Steps</div><div class="detail-meta-value">' + (execution.steps?.join(', ') || 'none') + '</div></div>' +
-              '<div class="detail-meta"><div class="detail-meta-label">Events</div><div class="detail-meta-value">' + (execution.events?.length || 0) + '</div></div>' +
+              '<div class="detail-meta"><div class="detail-meta-label">Execution ID</div><div class="detail-meta-value">' + escapeHtml(shortId(execution.executionId)) + '</div></div>' +
+              '<div class="detail-meta"><div class="detail-meta-label">Adapter</div><div class="detail-meta-value">' + escapeHtml(execution.adapterId) + '</div></div>' +
+              '<div class="detail-meta"><div class="detail-meta-label">Status</div><div class="detail-meta-value">' + escapeHtml(execution.status) + '</div></div>' +
+              '<div class="detail-meta"><div class="detail-meta-label">Session</div><div class="detail-meta-value">' + escapeHtml(shortId(execution.sessionId)) + '</div></div>' +
+              '<div class="detail-meta"><div class="detail-meta-label">Steps</div><div class="detail-meta-value">' + escapeHtml(execution.steps?.join(', ') || 'none') + '</div></div>' +
+              '<div class="detail-meta"><div class="detail-meta-label">Events</div><div class="detail-meta-value">' + escapeHtml(execution.events?.length || 0) + '</div></div>' +
             '</div>' +
             '<div class="detail-raw-toggle" onclick="toggleDetailRaw(&quot;executionRaw&quot;)">Toggle raw payload</div>' +
-            '<pre id="executionRaw" class="detail-raw hidden">' + JSON.stringify({
+            '<pre id="executionRaw" class="detail-raw hidden">' + escapeHtml(JSON.stringify({
               executionId: execution.executionId,
               status: execution.status,
               adapterId: execution.adapterId,
@@ -1117,7 +1142,7 @@ const html = `<!doctype html>
               sessionId: execution.sessionId,
               steps: execution.steps,
               eventCount: execution.events?.length || 0,
-            }, null, 2) + '</pre>' +
+            }, null, 2)) + '</pre>' +
           '</div>'
       }
 
@@ -1142,7 +1167,7 @@ const html = `<!doctype html>
         for (const [label, value] of metrics) {
           const el = document.createElement('div')
           el.className = 'metric run-overview-card'
-          el.innerHTML = '<div class="metric-label">' + label + '</div><div class="metric-value">' + value + '</div>'
+          el.innerHTML = '<div class="metric-label">' + escapeHtml(label) + '</div><div class="metric-value">' + escapeHtml(value) + '</div>'
           runSummary.appendChild(el)
         }
         const checkpoint = session.checkpoint
@@ -1151,21 +1176,21 @@ const html = `<!doctype html>
         const verdict = session.contractEvaluation?.verdict || 'n/a'
         runScenarioOverview.classList.remove('hidden')
         runScenarioOverview.innerHTML =
-          '<div class="detail-meta"><div class="detail-meta-label">Started</div><div class="detail-meta-value">' + formatRelativeTime(session.startedAt) + '</div></div>' +
-          '<div class="detail-meta"><div class="detail-meta-label">Checkpoint</div><div class="detail-meta-value">' + checkpoint + '</div></div>' +
-          '<div class="detail-meta"><div class="detail-meta-label">Artifacts</div><div class="detail-meta-value">' + Object.keys(session.artifacts || {}).length + '</div></div>'
+          '<div class="detail-meta"><div class="detail-meta-label">Started</div><div class="detail-meta-value">' + escapeHtml(formatRelativeTime(session.startedAt)) + '</div></div>' +
+          '<div class="detail-meta"><div class="detail-meta-label">Checkpoint</div><div class="detail-meta-value">' + escapeHtml(checkpoint) + '</div></div>' +
+          '<div class="detail-meta"><div class="detail-meta-label">Artifacts</div><div class="detail-meta-value">' + escapeHtml(Object.keys(session.artifacts || {}).length) + '</div></div>'
         sessionDetail.innerHTML =
           '<div class="detail-summary">' +
             '<div class="detail-meta-grid">' +
-              '<div class="detail-meta"><div class="detail-meta-label">Session ID</div><div class="detail-meta-value">' + shortId(session.id) + '</div></div>' +
-              '<div class="detail-meta"><div class="detail-meta-label">Started</div><div class="detail-meta-value">' + formatRelativeTime(session.startedAt) + '</div></div>' +
-              '<div class="detail-meta"><div class="detail-meta-label">Checkpoint</div><div class="detail-meta-value">' + checkpoint + '</div></div>' +
-              '<div class="detail-meta"><div class="detail-meta-label">Contract</div><div class="detail-meta-value">' + verdict + '</div></div>' +
-              '<div class="detail-meta"><div class="detail-meta-label">Adapter</div><div class="detail-meta-value">' + (session.adapterId || 'n/a') + '</div></div>' +
-              '<div class="detail-meta"><div class="detail-meta-label">Project</div><div class="detail-meta-value">' + (hostProjectPath || 'unknown-project') + '</div></div>' +
+              '<div class="detail-meta"><div class="detail-meta-label">Session ID</div><div class="detail-meta-value">' + escapeHtml(shortId(session.id)) + '</div></div>' +
+              '<div class="detail-meta"><div class="detail-meta-label">Started</div><div class="detail-meta-value">' + escapeHtml(formatRelativeTime(session.startedAt)) + '</div></div>' +
+              '<div class="detail-meta"><div class="detail-meta-label">Checkpoint</div><div class="detail-meta-value">' + escapeHtml(checkpoint) + '</div></div>' +
+              '<div class="detail-meta"><div class="detail-meta-label">Contract</div><div class="detail-meta-value">' + escapeHtml(verdict) + '</div></div>' +
+              '<div class="detail-meta"><div class="detail-meta-label">Adapter</div><div class="detail-meta-value">' + escapeHtml(session.adapterId || 'n/a') + '</div></div>' +
+              '<div class="detail-meta"><div class="detail-meta-label">Project</div><div class="detail-meta-value">' + escapeHtml(hostProjectPath || 'unknown-project') + '</div></div>' +
             '</div>' +
             '<div class="detail-raw-toggle" onclick="toggleDetailRaw(&quot;sessionRaw&quot;)">Toggle raw payload</div>' +
-            '<pre id="sessionRaw" class="detail-raw hidden">' + JSON.stringify({
+            '<pre id="sessionRaw" class="detail-raw hidden">' + escapeHtml(JSON.stringify({
               sessionId: session.id,
               status: session.status,
               adapterId: session.adapterId,
@@ -1176,7 +1201,7 @@ const html = `<!doctype html>
               eventCount: session.events?.length || 0,
               contractEvaluation: session.contractEvaluation || null,
               lastEvent: session.events?.[session.events.length - 1] || null,
-            }, null, 2) + '</pre>' +
+            }, null, 2)) + '</pre>' +
           '</div>'
         renderWorkflowContract(session.contractEvaluation, currentExecution)
         renderSpecVsRunReal(session.contractEvaluation)
@@ -1237,8 +1262,8 @@ const html = `<!doctype html>
 
         specPanel.classList.remove('hidden')
         specVsRunReal.innerHTML =
-          '<div><span class="contract-verdict ' + evaluation.verdict + '">' + evaluation.verdict.replaceAll('_', ' ') + '</span>' +
-          ' <span class="muted">hard violations: ' + evaluation.hardViolations + ' • drift signals: ' + evaluation.driftSignals + '</span></div>' +
+          '<div><span class="contract-verdict ' + escapeHtml(evaluation.verdict) + '">' + escapeHtml(String(evaluation.verdict).replaceAll('_', ' ')) + '</span>' +
+          ' <span class="muted">hard violations: ' + escapeHtml(evaluation.hardViolations) + ' • drift signals: ' + escapeHtml(evaluation.driftSignals) + '</span></div>' +
           '<div class="spec-badges">' +
             '<span class="spec-badge">steps not started: ' + (evaluation.stepChecks || []).filter((step) => step.neverStarted).length + '</span>' +
             '<span class="spec-badge">steps incomplete: ' + (evaluation.stepChecks || []).filter((step) => step.incomplete).length + '</span>' +
@@ -1250,10 +1275,10 @@ const html = `<!doctype html>
           '</div>' +
           '<div class="spec-grid">' +
             '<div class="spec-column"><div class="metric-label">Expected Order</div><div class="contract-list">' +
-              (evaluation.expectedStepOrder || []).map((stepId, index) => '<div class="contract-item"><div class="contract-key">' + (index + 1) + '. ' + stepId + '</div></div>').join('') +
+              (evaluation.expectedStepOrder || []).map((stepId, index) => '<div class="contract-item"><div class="contract-key">' + escapeHtml((index + 1) + '. ' + stepId) + '</div></div>').join('') +
             '</div></div>' +
             '<div class="spec-column"><div class="metric-label">Observed Order</div><div class="contract-list">' +
-              (evaluation.observedStepOrder || []).map((stepId, index) => '<div class="contract-item"><div class="contract-key">' + (index + 1) + '. ' + stepId + '</div></div>').join('') +
+              (evaluation.observedStepOrder || []).map((stepId, index) => '<div class="contract-item"><div class="contract-key">' + escapeHtml((index + 1) + '. ' + stepId) + '</div></div>').join('') +
             '</div></div>' +
           '</div>'
       }
@@ -1268,8 +1293,8 @@ const html = `<!doctype html>
         artifactList.innerHTML = entries.map(([key, value]) => {
           const payload = typeof value === 'object' && value !== null ? JSON.stringify(value, null, 2) : String(value)
           return '<div class="artifact-item">' +
-            '<div class="artifact-key">' + key + '</div>' +
-            '<pre>' + payload + '</pre>' +
+            '<div class="artifact-key">' + escapeHtml(key) + '</div>' +
+            '<pre>' + escapeHtml(payload) + '</pre>' +
           '</div>'
         }).join('')
       }
@@ -1285,9 +1310,9 @@ const html = `<!doctype html>
           const code = finding.code || ('finding_' + (index + 1))
           const message = finding.message || JSON.stringify(finding)
           return '<div class="finding-item">' +
-            '<div class="finding-title">' + code + '</div>' +
-            '<div>' + message + '</div>' +
-            '<div class="finding-meta">' + severity + '</div>' +
+            '<div class="finding-title">' + escapeHtml(code) + '</div>' +
+            '<div>' + escapeHtml(message) + '</div>' +
+            '<div class="finding-meta">' + escapeHtml(severity) + '</div>' +
           '</div>'
         }).join('')
       }
@@ -1299,9 +1324,9 @@ const html = `<!doctype html>
           const stateClass = event.type === 'step_failed' ? ' failed' : event.type === 'step_completed' || event.type === 'run_completed' ? ' completed' : ''
           item.className = 'event-item' + stateClass
           item.innerHTML =
-            '<strong>' + event.type + '</strong>' +
-            '<div>' + JSON.stringify(event.data || {}, null, 2) + '</div>' +
-            '<div class="event-meta">' + (event.agentRole || 'system') + ' • ' + event.timestamp + '</div>'
+            '<strong>' + escapeHtml(event.type) + '</strong>' +
+            '<div>' + escapeHtml(JSON.stringify(event.data || {}, null, 2)) + '</div>' +
+            '<div class="event-meta">' + escapeHtml(event.agentRole || 'system') + ' • ' + escapeHtml(event.timestamp) + '</div>'
           sessionTimeline.appendChild(item)
         }
       }
@@ -1312,8 +1337,16 @@ const html = `<!doctype html>
         }
       }
 
+      function authHeaders(extra) {
+        const headers = { authorization: 'Bearer ' + controlPlaneToken }
+        if (extra) {
+          for (const key of Object.keys(extra)) headers[key] = extra[key]
+        }
+        return headers
+      }
+
       async function getJson(path) {
-        const response = await fetch(apiBase + path)
+        const response = await fetch(apiBase + path, { headers: authHeaders() })
         const json = await response.json()
         setRaw(json)
         if (!response.ok) {
@@ -1325,7 +1358,7 @@ const html = `<!doctype html>
       async function postJson(path, body) {
         const response = await fetch(apiBase + path, {
           method: 'POST',
-          headers: { 'content-type': 'application/json' },
+          headers: authHeaders({ 'content-type': 'application/json' }),
           body: JSON.stringify(body),
         })
         const json = await response.json()
@@ -1598,24 +1631,49 @@ const html = `<!doctype html>
     </script>
   </body>
 </html>`
+}
 
-const server = createServer((request, response) => {
-  if ((request.method ?? 'GET') === 'GET' && (request.url ?? '/') === '/') {
-    response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
-    response.end(html)
-    return
-  }
+export async function createPlatformWebServer(options: {
+  apiPort?: number
+  webPort?: number
+  defaultRepo?: string
+  token?: string
+} = {}) {
+  const apiPort = options.apiPort ?? API_PORT
+  const webPort = options.webPort ?? WEB_PORT
+  const token = options.token ?? await ensureControlPlaneToken()
+  const html = buildDashboardHtml({
+    apiPort,
+    webPort,
+    defaultRepo: options.defaultRepo ?? DEFAULT_REPO,
+    token,
+  })
+  const server = createServer((request, response) => {
+    if ((request.method ?? 'GET') === 'GET' && (request.url ?? '/') === '/') {
+      response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
+      response.end(html)
+      return
+    }
 
-  if ((request.method ?? 'GET') === 'GET' && (request.url ?? '/') === '/health') {
-    response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
-    response.end(JSON.stringify({ ok: true, service: 'agentic-platform-dashboard-web', port: WEB_PORT, apiPort: API_PORT }, null, 2))
-    return
-  }
+    if ((request.method ?? 'GET') === 'GET' && (request.url ?? '/') === '/health') {
+      response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
+      response.end(JSON.stringify({ ok: true, service: 'agentic-platform-dashboard-web', port: webPort, apiPort }, null, 2))
+      return
+    }
 
-  response.writeHead(404, { 'content-type': 'application/json; charset=utf-8' })
-  response.end(JSON.stringify({ error: 'not_found' }, null, 2))
-})
+    response.writeHead(404, { 'content-type': 'application/json; charset=utf-8' })
+    response.end(JSON.stringify({ error: 'not_found' }, null, 2))
+  })
+  return { server, html, token, apiPort, webPort }
+}
 
-server.listen(WEB_PORT, () => {
-  console.log(`agentic-platform dashboard-web listening on http://localhost:${WEB_PORT}`)
-})
+async function startPlatformWeb() {
+  const { server, webPort } = await createPlatformWebServer()
+  server.listen(webPort, CONTROL_PLANE_HOST, () => {
+    console.log(`agentic-platform dashboard-web listening on http://${CONTROL_PLANE_HOST}:${webPort}`)
+  })
+}
+
+if (path.basename(process.argv[1] ?? '') === 'server.ts') {
+  void startPlatformWeb()
+}
