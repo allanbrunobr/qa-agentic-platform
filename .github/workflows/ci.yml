@@ -37,6 +37,8 @@ jobs:
         run: npm run audit:deps
       - name: Typecheck
         run: npm run typecheck
+      - name: Build (runtime API and dashboard)
+        run: npm run build
       - name: Unit and route tests
         run: npm test
       - name: Release gate

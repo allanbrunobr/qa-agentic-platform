@@ -382,12 +382,24 @@ type InstallKeys = {
  * install with the user's previous .env.local replaced.
  */
 async function resolveInstallKeys(repoPath: string): Promise<InstallKeys> {
-  const resolvedAnthropic = await resolveAnthropicKey(repoPath)
-  const resolvedOpenAI = await resolveOpenAIKey(repoPath)
-  const refusedKey = unsafeEnvKey('ANTHROPIC_API_KEY', resolvedAnthropic.key) ?? unsafeEnvKey('OPENAI_API_KEY', resolvedOpenAI.key)
-  if (refusedKey) {
-    throw new Error(`refusing unsafe ${refusedKey}`)
+  // A key already in the target's .env.local, in a form the launcher loads, stays in effect and the
+  // other sources are not consulted for it. A value there that the launcher would refuse counts as
+  // missing (it is replaced, see envLocalReplacedKeys), so only the other sources decide that key.
+  const targetEnv = parseUserEnvLines(
+    await fs.readFile(path.join(repoPath, LOCAL_PACKAGE_DIRNAME, '.env.local'), 'utf8').catch(() => ''),
+  )
+  async function pick<T extends { key: string; source: string }>(name: string, resolve: () => Promise<T>): Promise<T> {
+    const kept = targetEnv.values[name]
+    if (kept !== undefined) return { key: kept, source: 'target/.agentic-qa/.env.local' } as T
+    const resolved = await resolve()
+    // The target file was handled above: what it holds for this key is missing or unusable.
+    if (resolved.source === 'target/.agentic-qa/.env.local') return { key: '', source: 'missing' } as T
+    // Only the value that would be written is checked, and the error names where it came from.
+    if (unsafeEnvKey(name, resolved.key)) throw new Error(`refusing unsafe ${name} (from ${resolved.source})`)
+    return resolved
   }
+  const resolvedAnthropic = await pick('ANTHROPIC_API_KEY', () => resolveAnthropicKey(repoPath))
+  const resolvedOpenAI = await pick('OPENAI_API_KEY', () => resolveOpenAIKey(repoPath))
   return { resolvedAnthropic, resolvedOpenAI }
 }
 

@@ -48,6 +48,8 @@ export interface UpgradeLocalResult {
   upgradedAt: string
   databases: UpgradedDatabase[]
   skippedDatabases: Array<{ path: string; reason: string }>
+  /** Keys in .env.local the launcher would refuse; the reinstall replaced them (see install-local). */
+  envLocalReplacedKeys: string[]
 }
 
 async function loadTemplateModules(templateRoot: string) {
@@ -141,7 +143,7 @@ export async function upgradeLocalPackage(input: { repoPath: string; now?: Date 
   }
 
   // Runtime source: install-local copies only the runtime code and merges .env.local.
-  await installLocalPackage({ repoPath: input.repoPath })
+  const installed = await installLocalPackage({ repoPath: input.repoPath })
 
   const upgradedAt = (input.now ?? new Date()).toISOString()
   const stamp = upgradedAt.replace(/[:.]/g, '-')
@@ -179,6 +181,7 @@ export async function upgradeLocalPackage(input: { repoPath: string; now?: Date 
     upgradedAt,
     databases,
     skippedDatabases: skipped,
+    envLocalReplacedKeys: installed.envLocalReplacedKeys,
   }
   metadata['lastUpgrade'] = {
     upgradedAt,

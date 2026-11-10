@@ -1367,3 +1367,43 @@ rodada sobre o HEAD antes do PR. As rodadas vêm convergindo (12, 6, 4, 5 achado
 pontos mais periféricos.
 
 **Verificação (rodada 4):** `audit:deps` 0; `lint` 0; `typecheck` 0; `npm test` 0 (`verify-env-docs` 82/82; API 485, rotas `node:test` 27, web 121); `verify:release` 0; `test:e2e` 0.
+
+# Decisões do coordenador (2026-11-10, segunda leva)
+
+## `pre-pr-contradicoes` (rodada 5, `cd29fc0`): 6 vivos (2 raízes), 1 refutado — corrigidos
+
+| Achados | Correção | Teste (falhou antes) |
+|---|---|---|
+| #1, #3, #5 Valor inseguro no `.env.local` do alvo: o merge o tratava como ausente, mas a resolução das fontes o lia de novo (fonte 5) e a checagem prévia abortava. A forma `export` caía no caminho oposto. Uma chave segura no alvo era bloqueada por um valor inseguro numa fonte que nem seria usada, e o erro nomeava a variável errada | `resolveInstallKeys` olha primeiro o `.env.local` do alvo: uma chave segura ali vale, e as outras fontes não são consultadas para ela. Um valor inseguro ali conta como ausente também na resolução. Só o valor que seria gravado é checado, e o erro nomeia a fonte (`refusing unsafe ANTHROPIC_API_KEY (from ANTHROPIC_API)`). README e `generated-files.md` descrevem o mesmo comportamento | `testUnsafeTargetKeyHandling`: formas simples e `export` dão o mesmo resultado (trocada e reportada); chave segura no alvo com `ANTHROPIC_API` inseguro é mantida; a recusa nomeia a fonte. Com o instalador anterior, 4 checagens falham |
+| #2, #4, #6 O README prometia `envLocalReplacedKeys` também no `upgrade-local`, mas a saída dele descartava o campo | `UpgradeLocalResult` traz `envLocalReplacedKeys` da reinstalação | `upgrade-local.test.ts`: chave insegura no `.env.local` aparece em `envLocalReplacedKeys` na saída do upgrade |
+
+## `npm run build` — feito
+
+- Existe um build real no projeto, no runtime que é distribuído: `templates/persona-qa-dashboard`
+  roda `npm run build --workspaces`, ou seja, `tsc` na API (emite `packages/api/dist`) e
+  `tsc -b && vite build` no web.
+- Os pacotes da plataforma (`packages/*`, `adapters/*`) rodam direto com `tsx`, com `noEmit` e
+  imports `.ts`; não há o que emitir neles, e o `typecheck` já os cobre.
+- `npm run build` na raiz chama o build do template:
+  `npm run build --prefix templates/persona-qa-dashboard`. Não é alias vazio. Medido: sai com 0 e
+  gera `packages/api/dist` e `packages/web/dist` (este com o aviso de chunk acima de 500 kB do Vite,
+  que não falha o build). Os dois `dist/` estão no `.gitignore` e fora da cópia do instalador.
+- O `ci.yml` ganhou o passo "Build (runtime API and dashboard)" depois do typecheck. O CI local
+  também roda o build.
+- O `ci-ok.sh` não foi tocado.
+
+## Dependabot — feito
+
+- `.github/dependabot.yml`, semanal para três alvos:
+  - `github-actions`: mantém atualizados os SHAs fixados e a versão no comentário;
+  - `npm` na raiz;
+  - `npm` em `templates/persona-qa-dashboard`, que tem lockfile próprio.
+- YAML validado com `js-yaml`. Os PRs do Dependabot só aparecem depois que o arquivo estiver no
+  GitHub.
+
+## Fica para depois
+
+- Rodada extra do `reportFinding` depois da ação do passo: com o Allan (custo de modelo).
+- A-04, A-05 e M-03: depois do PR.
+
+**Verificação:** `audit:deps` 0; `lint` 0; `typecheck` 0; `build` 0; `npm test` 0 (API 485, rotas `node:test` 27, web 121); `verify:release` 0; `test:e2e` 0.

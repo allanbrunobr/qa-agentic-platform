@@ -1,0 +1,19 @@
+# Weekly dependency updates. The GitHub Actions in .github/workflows are pinned by commit SHA with
+# the version in a comment; Dependabot updates both. npm covers the platform (root) and the runtime
+# template, which has its own lockfile and is copied into every target repository.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: npm
+    directory: /templates/persona-qa-dashboard
+    schedule:
+      interval: weekly

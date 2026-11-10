@@ -439,7 +439,7 @@ async function testInstaller() {
     try {
       await installLocalPackage({ repoPath: unsafeRepo })
     } catch (error) {
-      unsafeRefused = error instanceof Error && error.message === 'refusing unsafe ANTHROPIC_API_KEY'
+      unsafeRefused = error instanceof Error && error.message === 'refusing unsafe ANTHROPIC_API_KEY (from ANTHROPIC_API_KEY)'
     }
     const unsafeEnv = await readFile(path.join(unsafeRepo, '.agentic-qa', '.env.local'), 'utf8')
     assert(unsafeRefused, 'install refuses an unsafe key')
@@ -845,6 +845,59 @@ async function testKeptKeyIsReadByLauncher() {
   }
 }
 
+/**
+ * Fifth pre-PR run: an unsafe key in the target's .env.local counts as missing everywhere (merge and
+ * resolution), whatever the line form; a safe key there is not blocked by an unsafe value in a source
+ * that would not be used; and a refusal names the source of the value it refuses.
+ */
+async function testUnsafeTargetKeyHandling() {
+  const keys = ['ANTHROPIC_API_KEY_OVERRIDE', 'OPENAI_API_KEY_OVERRIDE', 'ANTHROPIC_API_KEY', 'ANTHROPIC_API', 'OPENAI_API_KEY', 'AGENTIC_QA_SKIP_KEY_VALIDATION']
+  const savedEnv = Object.fromEntries(keys.map((key) => [key, process.env[key]]))
+  const previousCwd = process.cwd()
+  for (const key of keys) delete process.env[key]
+  process.env.AGENTIC_QA_SKIP_KEY_VALIDATION = '1'
+  // No platform .env.local: run from an empty directory.
+  const emptyCwd = await mkdtemp(path.join(tmpdir(), 'agentic-no-platform-env-'))
+  const repo = await mkdtemp(path.join(tmpdir(), 'agentic-unsafe-target-'))
+  try {
+    process.chdir(emptyCwd)
+    await installLocalPackage({ repoPath: repo })
+    const envPath = path.join(repo, '.agentic-qa', '.env.local')
+
+    for (const line of ['ANTHROPIC_API_KEY="has spaces and !"', 'export ANTHROPIC_API_KEY="has spaces and !"']) {
+      await writeFile(envPath, `${line}\n`)
+      let error = ''
+      const result = await installLocalPackage({ repoPath: repo }).catch((caught) => {
+        error = caught instanceof Error ? caught.message : String(caught)
+        return null
+      })
+      const after = await readFile(envPath, 'utf8')
+      assert(result !== null && JSON.stringify(result.envLocalReplacedKeys) === '["ANTHROPIC_API_KEY"]' && !after.includes('has spaces'),
+        `unsafe target key (${line.startsWith('export') ? 'export form' : 'plain form'}) with no other source: replaced and reported, not an error (${error || JSON.stringify(result?.envLocalReplacedKeys)})`)
+    }
+
+    await writeFile(envPath, 'ANTHROPIC_API_KEY="sk-ant-safe123"\n')
+    process.env.ANTHROPIC_API = 'bad value!'
+    let blockedBy = ''
+    await installLocalPackage({ repoPath: repo }).catch((caught) => { blockedBy = caught instanceof Error ? caught.message : String(caught) })
+    assert(blockedBy === '' && (await readFile(envPath, 'utf8')).includes('ANTHROPIC_API_KEY="sk-ant-safe123"'),
+      `a safe key in .env.local is kept even when an unused source holds an unsafe value (${blockedBy || 'kept'})`)
+
+    await writeFile(envPath, '')
+    let refusal = ''
+    await installLocalPackage({ repoPath: repo }).catch((caught) => { refusal = caught instanceof Error ? caught.message : String(caught) })
+    assert(refusal === 'refusing unsafe ANTHROPIC_API_KEY (from ANTHROPIC_API)', `a refusal names the source of the unsafe value (${refusal})`)
+  } finally {
+    process.chdir(previousCwd)
+    for (const key of keys) {
+      if (savedEnv[key] === undefined) delete process.env[key]
+      else process.env[key] = savedEnv[key]
+    }
+    await rm(repo, { recursive: true, force: true })
+    await rm(emptyCwd, { recursive: true, force: true })
+  }
+}
+
 /** B-10: discover-local cleared every *.generated.* file in adapter/config, the install metadata too. */
 async function testDiscoveryKeepsInstallMetadata() {
   const keys = ['ANTHROPIC_API_KEY_OVERRIDE', 'OPENAI_API_KEY_OVERRIDE', 'AGENTIC_QA_SKIP_KEY_VALIDATION']
@@ -884,6 +937,7 @@ await testDiscoveryKeepsInstallMetadata()
 await testReinstallMergesEnvLocal()
 await testLauncherReinstallsDepsWhenLockChanges()
 await testKeptKeyIsReadByLauncher()
+await testUnsafeTargetKeyHandling()
 if (failed > 0) {
   console.error(`\n${failed} hardening check(s) failed`)
   process.exit(1)

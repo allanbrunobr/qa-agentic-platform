@@ -154,7 +154,7 @@ The installer looks for the Anthropic key in these sources, in order. It uses th
 4. `ANTHROPIC_API`
 5. the target's `.agentic-qa/.env.local`
 
-On a reinstall or `upgrade-local`, a key already set in the target's `.agentic-qa/.env.local` is kept, rewritten as `KEY="value"` (the only form the launcher reads); the order above only decides a key that is missing there. An empty line (`ANTHROPIC_API_KEY=`) counts as missing, and so does a value with characters the launcher refuses: it is replaced, and the install result lists it in `envLocalReplacedKeys`.
+On a reinstall or `upgrade-local`, a key already set in the target's `.agentic-qa/.env.local` is kept, rewritten as `KEY="value"` (the only form the launcher reads); the order above only decides a key that is missing there. An empty line (`ANTHROPIC_API_KEY=`) counts as missing, and so does a value with characters the launcher refuses: it is replaced, and the result of `install-local` and of `upgrade-local` lists it in `envLocalReplacedKeys`. A key with unsafe characters from the other sources stops the install before anything is written; the error names the source.
 
 The installer looks for the OpenAI key in these sources, in order: `agentic-platform/.env.local`, `OPENAI_API_KEY`, the target's `.agentic-qa/.env.local`. In the generated dashboard, **Settings** selects the provider for the next run.
 

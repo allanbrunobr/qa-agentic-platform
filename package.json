@@ -42,6 +42,7 @@
     "test:coverage": "c8 --reporter=text-summary --reporter=html --report-dir=coverage/platform --all --src=packages --include='packages/*/src/**' --exclude='**/*.test.ts' npm run test:unit && cd templates/persona-qa-dashboard/packages/api && npx vitest run --coverage",
     "verify:env-docs": "node scripts/verify-env-docs.mjs",
     "audit:deps": "npm audit --audit-level=high; root=$?; cd templates/persona-qa-dashboard && npm audit --audit-level=high; template=$?; [ $root -eq 0 ] && [ $template -eq 0 ]",
+    "build": "npm run build --prefix templates/persona-qa-dashboard",
     "lint": "eslint .",
     "typecheck": "tsc -p tsconfig.json && cd templates/persona-qa-dashboard/packages/api && npx tsc --noEmit && npx tsc -p tsconfig.test.json && cd ../web && npx tsc -b",
     "setup:runtime": "npm ci --prefix templates/persona-qa-dashboard",

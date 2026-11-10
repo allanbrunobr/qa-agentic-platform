@@ -88,7 +88,8 @@ try {
   process.env.DATABASE_URL = 'data/custom.db'
   const adapterFile = path.join(installed, 'adapter', 'personas', 'personas.generated.json')
   await writeFile(adapterFile, '[{"id":"reviewed-by-hand"}]')
-  await writeFile(path.join(installed, '.env.local'), 'PLAYWRIGHT_BASE_URL=http://127.0.0.1:4100\n')
+  // The key has characters the launcher refuses: the upgrade replaces it and must say so.
+  await writeFile(path.join(installed, '.env.local'), 'PLAYWRIGHT_BASE_URL=http://127.0.0.1:4100\nANTHROPIC_API_KEY="has spaces"\n')
   const metadataPath = path.join(installed, 'adapter', 'config', 'install-metadata.generated.json')
   const metadata = JSON.parse(await readFile(metadataPath, 'utf8')) as Record<string, unknown>
   await writeFile(metadataPath, JSON.stringify({ ...metadata, templateVersion: '0.0.9' }))
@@ -114,6 +115,7 @@ try {
   check(JSON.stringify(upgraded?.applied) === JSON.stringify({ dashboard: [1], 'phase2-sessions': [1, 2] }), `the applied migrations are reported (${JSON.stringify(upgraded?.applied)})`)
   check(await readFile(adapterFile, 'utf8') === '[{"id":"reviewed-by-hand"}]', 'adapter files reviewed by the user are untouched')
   check((await readFile(path.join(installed, '.env.local'), 'utf8')).includes('PLAYWRIGHT_BASE_URL=http://127.0.0.1:4100'), 'the user variables in .env.local are kept')
+  check(JSON.stringify(result.envLocalReplacedKeys) === '["ANTHROPIC_API_KEY"]', `the upgrade result lists the replaced .env.local key (${JSON.stringify(result.envLocalReplacedKeys)})`)
   const after = JSON.parse(await readFile(metadataPath, 'utf8')) as { templateVersion?: string; lastUpgrade?: { previousTemplateVersion?: string; upgradedAt?: string } }
   check(after.lastUpgrade?.previousTemplateVersion === '0.0.9' && after.lastUpgrade.upgradedAt === '2026-11-10T12:00:00.000Z', 'the upgrade is recorded in the install metadata')
   check(result.previousTemplateVersion === '0.0.9' && result.templateVersion === after.templateVersion, 'the result names the versions before and after')
