@@ -5,7 +5,7 @@ import { COMPOSITE_CAPABILITY_TOOLS } from './composite-capabilities.js';
 
 type Session = NonNullable<ReturnType<SessionService['getSession']>>;
 
-function deriveObservedToolsByStep(session: Session): Record<string, string[]> {
+function deriveObservedToolsByStep(session: Pick<Session, 'events'>): Record<string, string[]> {
   const toolsByStep = new Map<string, string[]>();
   let activeStepId: string | null = null;
 
@@ -67,6 +67,23 @@ export function buildContractEvaluation(session: Session) {
     };
   }
 
+  return {
+    workflowContract,
+    workflowContractYaml,
+    contractEvaluation: evaluateWorkflowContract(session, workflowContract),
+  };
+}
+
+type WorkflowContract = NonNullable<ReturnType<typeof loadScenario>['workflowContract']>;
+
+/**
+ * The verdict itself, without loading the scenario. Exported so a conformance test can run it next to
+ * the control plane's evaluator (packages/core) on the same sessions (A-01 in docs/analise-20261109.md).
+ */
+export function evaluateWorkflowContract(
+  session: Pick<Session, 'events' | 'artifacts' | 'status'>,
+  workflowContract: Pick<WorkflowContract, 'steps'>,
+) {
   const contractSteps = workflowContract.steps;
   const expectedStepOrder = contractSteps.map((step) => step.id);
   const { observedStepOrder, lastOutcomeByStep, retriedSteps } = summarizeStepOutcomes(session.events);
@@ -134,24 +151,20 @@ export function buildContractEvaluation(session: Session) {
         : 'contract_compliant';
 
   return {
-    workflowContract,
-    workflowContractYaml,
-    contractEvaluation: {
-      verdict,
-      hardViolations,
-      driftSignals,
-      final: isFinalSessionState,
-      expectedStepOrder,
-      observedStepOrder,
-      expectedArtifacts,
-      producedArtifacts,
-      missingArtifacts,
-      unexpectedArtifacts,
-      informationalArtifacts,
-      observedUnexpectedSteps,
-      retriedSteps,
-      stepChecks,
-    },
+    verdict,
+    hardViolations,
+    driftSignals,
+    final: isFinalSessionState,
+    expectedStepOrder,
+    observedStepOrder,
+    expectedArtifacts,
+    producedArtifacts,
+    missingArtifacts,
+    unexpectedArtifacts,
+    informationalArtifacts,
+    observedUnexpectedSteps,
+    retriedSteps,
+    stepChecks,
   };
 }
 

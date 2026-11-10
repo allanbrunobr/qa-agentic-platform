@@ -736,3 +736,47 @@ repositório preservando `.env.local`, banco e artefatos. Ele depende de decidir
 sobrescrever. O versionamento de schema acima é o que torna esse comando seguro.
 
 **Verificação:** `typecheck` 0; `npm test` 0 (API 468, rotas `node:test` 27, web 121); `verify:release` 0; `test:e2e` 0.
+
+## A-01 · Dois motores e dois avaliadores de contrato — parte feita (a decisão fica com o Allan)
+
+**Decisão em aberto:** qual avaliador é a fonte da verdade, o do core (control plane) ou o do
+runtime. É decisão de produto, então não escolhi. O que foi feito deixa a divergência visível e
+remove o que não tinha uso.
+
+**Divergências encontradas lendo os dois** (`packages/core/src/runtime/contract-evaluation.ts` e
+`templates/.../phase2/services/contract-evaluation.ts`):
+
+| Ponto | Core (control plane) | Runtime (template) |
+|---|---|---|
+| Artefato fora do contrato (ex.: `screenshot_1`) | conta como drift | só informativo; segue compliant |
+| Capability composta feita pelas suas ferramentas | drift (exige ferramenta com o nome da capability) | compliant (`COMPOSITE_CAPABILITY_TOOLS`) |
+| De onde vêm os artefatos produzidos | `payload.producedArtifacts` dos eventos | `session.artifacts` |
+| Ordem esperada do passo | índice na lista do cenário | `step.order` do contrato |
+| Entrada | modelo do adapter (`AdapterModelBundle`) | `workflowContract` do cenário carregado |
+
+**O que mudou**
+
+- O avaliador do runtime ganhou `evaluateWorkflowContract(session, workflowContract)`: a parte
+  pura de `buildContractEvaluation`, sem carregar o cenário. O comportamento não mudou: 468 testes
+  do runtime e `tsc` iguais.
+- `packages/core/src/runtime/contract-conformance.test.ts` (no `test:unit`) roda os dois
+  avaliadores nas mesmas sessões:
+  - concordam em 5 casos: execução limpa, passo recuperado no retry, última tentativa falhou,
+    artefato esperado ausente e ferramenta errada;
+  - as 2 divergências de veredito acima ficam fixadas com o rótulo `KNOWN DIVERGENCE`. Quando um
+    dos lados mudar, o teste aponta, e aí é hora de decidir quem está certo.
+- Checagem do instrumento:
+  - runtime passando a contar artefato extra como drift: o teste falha;
+  - core deixando de contar: o teste falha.
+- Removido do core, depois de grep em `packages/`, `adapters/`, `scripts/` e no template:
+  - as interfaces `ToolRegistry`, `AgentRegistry`, `ScenarioRegistry`, `RuntimeContext` e
+    `Orchestrator`;
+  - `session-lifecycle-runner.ts` inteiro (`runSessionLifecycle` e seus tipos);
+  - `coreRuntimeManifest`.
+  Nenhum tinha uso. `SessionStore` fica, porque o core usa.
+
+**Não feito:** os gates de qualidade (`scenario-quality-gates.ts`) têm o mesmo problema de cópia
+dupla e só 29,78% de cobertura no core (T-05). Um teste de conformidade igual a este cabe ali
+depois da decisão acima.
+
+**Verificação:** `typecheck` 0; `npm test` 0 (conformidade no `test:unit`; API 468, rotas `node:test` 27, web 121); `verify:release` 0; `test:e2e` 0.

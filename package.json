@@ -35,7 +35,7 @@
     "dev:api": "tsx packages/dashboard-api/src/server.ts",
     "dev:web": "tsx packages/dashboard-web/src/server.ts",
     "test": "npm run test:unit && npm run test:runtime",
-    "test:unit": "tsx packages/dashboard-api/src/ingestion/boundary.test.ts && tsx packages/core/src/runtime/contract-evaluation.test.ts && tsx packages/core/src/runtime/adapter-execution-engine.test.ts && tsx packages/dashboard-api/src/hardening.regression.test.ts && tsx packages/dashboard-api/src/discovery-hardening.test.ts && npm run verify:domain-discovery-contracts && npm run verify:static-frontend-scanner && npm run verify:domain-fixture-matrix && npm run verify:domain-specialist-service",
+    "test:unit": "tsx packages/dashboard-api/src/ingestion/boundary.test.ts && tsx packages/core/src/runtime/contract-evaluation.test.ts && tsx packages/core/src/runtime/adapter-execution-engine.test.ts && tsx packages/core/src/runtime/contract-conformance.test.ts && tsx packages/dashboard-api/src/hardening.regression.test.ts && tsx packages/dashboard-api/src/discovery-hardening.test.ts && npm run verify:domain-discovery-contracts && npm run verify:static-frontend-scanner && npm run verify:domain-fixture-matrix && npm run verify:domain-specialist-service",
     "test:runtime": "cd templates/persona-qa-dashboard/packages/api && npx vitest run && node --import tsx --test src/routes/__tests__/*.test.ts && cd ../web && npx vitest run",
     "test:e2e": "node scripts/verify-e2e-storefront.mjs",
     "test:coverage": "c8 --reporter=text-summary --reporter=html --report-dir=coverage/platform --all --src=packages --include='packages/*/src/**' --exclude='**/*.test.ts' npm run test:unit && cd templates/persona-qa-dashboard/packages/api && npx vitest run --coverage",
