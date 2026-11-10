@@ -73,7 +73,7 @@ describe('dashboard proxy to the runtime API', () => {
   it('adds the local token to the WebSocket upgrade', async () => {
     const before = seenUpgrade.length
     await new Promise<void>((resolve) => {
-      const socket = new WebSocket(`${viteUrl.replace(/^http/, 'ws')}/ws/runs/1`)
+      const socket = new WebSocket(`${viteUrl.replace(/^http/, 'ws')}/ws/p2/sessions/s1`)
       socket.addEventListener('error', () => resolve())
       socket.addEventListener('close', () => resolve())
     })

@@ -89,17 +89,16 @@ must be set in the environment the launcher (or `upgrade-local`) is started from
 | `PERSONA_QA_L5_CLOSED_LOOP_GENERATE_DRAFTS` | `1` lets the loop generate scenario drafts. |
 | `PERSONA_QA_L5_CLOSED_LOOP_ACTOR` | Name recorded as the actor of the loop's decisions. |
 
-## Installed runtime: legacy model (A-04)
+## Installed runtime: legacy data sync (A-04)
 
-Read only by the legacy routes (`/api/runs`, `/api/scenarios`, `/api/findings`, `/api/sync`) and
-`services/runner.ts`, which the dashboard no longer reaches.
+Read only by the legacy data sync (`POST /api/sync`, `GET /api/sync/summary` and the sync at API start),
+which fills the tables behind `/api/stats` and `/api/insights`. The legacy run routes (`/api/runs`,
+`/api/scenarios`, `/api/findings`) and their runner were removed.
 
 | Variable | Effect |
 |---|---|
-| `PERSONA_QA_PROJECT_DIR` | Project directory of the legacy runner. |
-| `PERSONA_QA_DATA_DIR` | Data directory of the legacy runner. |
-| `PERSONA_QA_TIMEOUT_MS` | Timeout of the legacy runner's child process. |
-| `PERSONA_QA_SCENARIO` | Set by the legacy runner for its child process. |
+| `PERSONA_QA_PROJECT_DIR` | Project directory the data sync resolves its default data directory from. |
+| `PERSONA_QA_DATA_DIR` | Data directory the data sync reads. |
 
 ## Live scenario script (`npm run phase2:live`)
 

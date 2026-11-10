@@ -20,7 +20,8 @@ Changes from the review in `docs/analise-20261109.md`. Item ids (S-, B-, T-, A-,
 - Secrets stay out of the target CLI environment, tool output and session events (S-03, S-06).
 - Tool output reaches the model fenced as untrusted data, including the artifacts earlier steps
   produced; a step whose capability has no tool fails instead of getting every tool (S-04, S-05).
-- The QA browser stays on the run target, and screenshot reads are confined (S-07, S-08).
+- The QA browser stays on the run target (S-07). The finding screenshot route that S-08 confined was
+  removed with the legacy run model (A-04).
 - Untrusted repository content is wrapped in nonce-matched markers the content cannot forge (S-13).
 - Generated API calls follow redirects only on the configured origin; generated browser tools take
   their risk level from the handler they get; `POST /api/personas` no longer overwrites an unreadable
@@ -64,6 +65,14 @@ Changes from the review in `docs/analise-20261109.md`. Item ids (S-, B-, T-, A-,
   policy, hardening and boundary tests check behaviour instead of strings (T-01 to T-05).
 - `docs/environment-variables.md` lists the variables the code reads; `npm run verify:env-docs`
   enforces it (M-01).
+
+### Removed
+
+- The legacy run model of the installed runtime (A-04): `POST /api/runs`, which ran
+  `pnpm test:persona-qa` in the project directory, the routes `/api/runs`, `/api/scenarios` and
+  `/api/findings` (with the finding screenshot route), the `/ws/runs/:runId` log stream, and their
+  runner. The dashboard pages and components that read them were not reachable and are gone too.
+  `/api/stats`, `/api/insights`, `/api/sync` and the legacy tables stay for now.
 
 ## [0.1.0] - 2026-10-22
 

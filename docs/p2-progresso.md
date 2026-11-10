@@ -1571,3 +1571,48 @@ Não feita: não há chave configurada (nem no ambiente, nem em `.env.local` da 
 no repositório principal). Fica com o Allan.
 
 **Verificação (pós-PR, local):** `audit:deps` 0; `lint` 0; `typecheck` 0; `build` 0; `npm test` 0 (API 510, rotas `node:test` 27, web 125); `verify:release` 0; `test:e2e` 0.
+
+## A-04 · Legado do runtime instalado — parte sem decisão de produto (branch local `a04-legado`)
+
+Feito em branch própria (`a04-legado`), empilhada sobre o PR #1: rebaseada sobre `p2-correcoes` depois que o Allan decidiu (20:04) que a rodada de relato (1b22444) entra no PR #1.
+
+**Removido** (não tinha consumidor alcançável):
+- API: `POST /api/runs` (rodava `pnpm test:persona-qa` no diretório do projeto), `GET /api/runs*`,
+  `/api/scenarios*`, `/api/findings*` (com a rota de screenshot que o S-08 confinava), o WebSocket
+  `/ws/runs/:runId`, e `services/runner.ts`, `services/log-parser.ts`, `services/screenshot-path.ts`.
+- Web: 22 módulos que nenhuma página roteada importava (`Findings`, `PRTracking`, `Runs`,
+  `ScenarioDetail`, `Scenarios` e 17 componentes), os 16 arquivos de teste deles e as funções legadas de
+  `lib/api.ts`. A primeira busca de testes não viu os que ficam ao lado dos componentes; o typecheck acusou
+  3 e eles saíram também.
+- Docs: seção de variáveis do legado reescrita; `PERSONA_QA_TIMEOUT_MS`/`PERSONA_QA_SCENARIO` (lidas só pelo
+  runner) saíram; CHANGELOG ganhou "Removed" e a linha do S-08 diz que a rota saiu.
+
+**Medido:**
+- Teste `legacy-routes-removed.test.ts` com o `buildApp` real: as 11 rotas legadas dão o 404 do próprio
+  Fastify ("Route … not found"); antes: 11 falhas. A primeira versão só olhava o status 404, e 3 rotas já
+  davam 404 por id inexistente; o teste passou a exigir a mensagem de rota inexistente.
+- `GET /api/stats`, `/api/insights`, `/api/status`, `/api/suite-health`, `/api/personas`, `/api/p2/sessions`,
+  `/api/p2/scenarios` num banco novo: respostas idênticas antes e depois (snapshot conferido como
+  determinístico em duas execuções antes da remoção).
+- O teste do guard que fazia o upgrade em `/ws/runs/1` passou para `/ws/p2/sessions/s1` (101/401/403
+  mantidos).
+
+**Efeito colateral, já reparado:** a primeira execução do teste novo contra o código antigo chamou o
+`POST /api/runs` legado, que rodou `pnpm` na raiz do repositório: criou `pnpm-lock.yaml`,
+`pnpm-workspace.yaml`, `templates/integration-test/` e reinstalou o `node_modules` da raiz no layout do
+pnpm (resolvendo pelo `package.json`, não pelo `package-lock.json`). Os três arquivos foram apagados e o
+`node_modules` refeito com `npm ci`. É o risco que o A-04 descreve, observado.
+
+**Fica para o Allan (decisão de produto), intocado:** `/api/stats`, `/api/insights`, `/api/sync`, a sync no
+start da API, as tabelas legadas e o `drizzle-orm`. Fato para decidir: no launcher (cwd `.agentic-qa`), o
+diretório de dados da sync é `<repo>/../../integration-test/persona-tests` (fora do repositório-alvo),
+então as tabelas legadas ficam vazias e a página **Insights**, que só lê essas tabelas, fica sempre vazia;
+as contagens legadas de `/api/stats` ficam em zero. As opções são reescrever Insights/estatísticas sobre as
+sessões agênticas ou remover a página e o resto do legado.
+
+**Não feito:** `AgenticSessionDetail.tsx` (com `StepHistoryPanel`) também não é alcançável, mas é do modelo
+agêntico e não está na lista do A-04; ficou. M-03 (renomear `persona-qa`, `/api/p2`, `PERSONA_QA_*`) pede
+escolha de nomes e aliases pelo Allan e colidiria com as branches abertas; não comecei. A-05 (arquivos-deus)
+é refatoração incremental sem mudança funcional em vista; não comecei.
+
+**Verificação (A-04, branch `a04-legado`):** `audit:deps` 0; `lint` 0; `typecheck` 0; `build` 0; `npm test` 0 (API 515 = 503 + 18 do teste novo − 6 do S-08; rotas `node:test` 25 = 27 − 2 de `runs.test.ts`; web 25 = 125 − 100 dos testes dos componentes removidos); `verify:release` 0; `test:e2e` 0.
