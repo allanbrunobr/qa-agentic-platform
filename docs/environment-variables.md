@@ -74,7 +74,7 @@ must be set in the environment the launcher (or `upgrade-local`) is started from
 | `PERSONA_QA_INSTALL_METADATA_FILE` | Install metadata (`install-metadata.generated.json`). |
 | `PERSONA_QA_USE_REFERENCE_SCENARIOS` | `1` uses the built-in reference scenarios instead of the generated ones. |
 | `PERSONA_QA_STRICT_AVAILABLE_SCENARIOS` | `1` hides sessions of scenarios that are not available any more. |
-| `PHASE2_ARTIFACT_DIR` | Directory for screenshots and other session artifacts. |
+| `PHASE2_ARTIFACT_DIR` | Directory for screenshots and other session artifacts. Default: `artifacts/` in the API working directory (`.agentic-qa/artifacts/` under the launcher, which the generated `.gitignore` covers). |
 
 ## Installed runtime: L5 closed loop
 

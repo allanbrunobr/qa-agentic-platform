@@ -836,6 +836,15 @@ async function testKeptKeyIsReadByLauncher() {
     const gitInit = spawnSync('git', ['init', '-q'], { cwd: repo, encoding: 'utf8' })
     const ignored = spawnSync('git', ['check-ignore', '-q', '.agentic-qa/persona-qa.db.pre-upgrade-2026-11-10T12-00-00-000Z.bak'], { cwd: repo, encoding: 'utf8' })
     assert(gitInit.status === 0 && ignored.status === 0, `the generated .gitignore ignores upgrade-local database backups (check-ignore exit ${ignored.status})`)
+    // Seventh pre-PR run, #2: the launcher runs the API from .agentic-qa/, and PHASE2_ARTIFACT_DIR
+    // defaults to <cwd>/artifacts, so screenshots land in .agentic-qa/artifacts/. Both locations are
+    // run artifacts and stay out of git.
+    for (const artifact of ['.agentic-qa/artifacts/screenshots/s1/1.png', '.agentic-qa/artifacts/l5/s1/record.json', '.agentic-qa/packages/api/artifacts/screenshots/s1/1.png']) {
+      const artifactIgnored = spawnSync('git', ['check-ignore', '-q', artifact], { cwd: repo, encoding: 'utf8' })
+      assert(artifactIgnored.status === 0, `the generated .gitignore ignores the run artifact ${artifact} (check-ignore exit ${artifactIgnored.status})`)
+    }
+    const reviewed = spawnSync('git', ['check-ignore', '-q', '.agentic-qa/adapter/scenarios/scenarios.generated.json'], { cwd: repo, encoding: 'utf8' })
+    assert(reviewed.status === 1, `the generated .gitignore still lets reviewed adapter files be committed (check-ignore exit ${reviewed.status})`)
   } finally {
     for (const key of keys) {
       if (savedEnv[key] === undefined) delete process.env[key]

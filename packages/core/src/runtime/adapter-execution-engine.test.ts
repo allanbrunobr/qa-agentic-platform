@@ -118,6 +118,29 @@ try {
   const unreported = await run('unreported-capability', { executeStep: () => ({}) })
   check(toolsOf(unreported.session.events, 'a').length === 0, 'when the adapter reports nothing, the engine does not invent the declared capability as the tool used')
   check(unreported.session.events.some((event) => event.type === 'tool_call' && event.data?.['declaredCapability'] === 'capA'), 'the dispatch still records which capability was declared')
+
+  // A step retried after a failure: the verdict closes a step at step_failed and reopens it only at
+  // step_started. The engine opened a step once, so what a retry reported fell outside every step and
+  // a retry that ran another capability was judged compliant. Each attempt now opens the step, the
+  // same format the runtime's orchestrator records.
+  const retriedWrong = await run('retry-wrong-capability', {
+    executeStep: (ctx: { stepId: string; attempt: number }) => ctx.stepId === 'a' && ctx.attempt === 0
+      ? { status: 'failed', retryable: true, maxRetries: 2, errorMessage: 'flaky' }
+      : { executedCapabilities: [ctx.stepId === 'a' ? 'refundOrder' : 'capB'] },
+  })
+  const retriedEvaluation = buildAdapterContractEvaluation(retriedWrong.session as never, { scenarioId: 's1' } as never, model)
+  const retriedStepA = retriedEvaluation?.stepChecks.find((step) => step.stepId === 'a')
+  check(JSON.stringify(retriedStepA?.observedTools) === '["refundOrder"]', `the capability a retry reports counts for its step (got ${JSON.stringify(retriedStepA?.observedTools)})`)
+  check(retriedEvaluation?.verdict === 'contract_drift', `a retry that executed another capability is drift (got ${retriedEvaluation?.verdict})`)
+  check(retriedWrong.session.events.filter((event) => event.type === 'step_started' && event.data?.['stepId'] === 'a').length === 2, 'each attempt of a step opens it with step_started')
+
+  const retriedRight = await run('retry-right-capability', {
+    executeStep: (ctx: { stepId: string; attempt: number }) => ctx.stepId === 'a' && ctx.attempt === 0
+      ? { status: 'failed', retryable: true, maxRetries: 2, errorMessage: 'flaky', executedCapabilities: ['refundOrder'] }
+      : { executedCapabilities: [ctx.stepId === 'a' ? 'capA' : 'capB'] },
+  })
+  const retriedRightEvaluation = buildAdapterContractEvaluation(retriedRight.session as never, { scenarioId: 's1' } as never, model)
+  check(retriedRightEvaluation?.verdict === 'contract_compliant', `a retry that executed the declared capability is compliant (got ${retriedRightEvaluation?.verdict})`)
 } finally {
   await rm(dir, { recursive: true, force: true })
 }

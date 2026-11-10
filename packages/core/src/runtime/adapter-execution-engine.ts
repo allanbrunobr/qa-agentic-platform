@@ -104,19 +104,6 @@ async function runEngine(input: AdapterExecutionEngineInput) {
     const stepId = execution.steps[index]
     const stepDefinition = scenario?.stepDefinitions?.find((item) => item.id === stepId)
     const stepInstructions = buildStepInstructionEnvelope(stepId, stepDefinition, producedArtifacts)
-    await sessionStore.appendEvent({
-      id: randomUUID(),
-      sessionId,
-      type: 'step_started',
-      timestamp: new Date().toISOString(),
-      agentRole: stepDefinition?.roleId,
-      data: {
-        stepId,
-        index,
-        capabilityId: stepDefinition?.capabilityId,
-        instructions: stepInstructions,
-      },
-    } satisfies SessionEvent)
     await input.onStepStarted?.(stepId, index)
     await sleep(stepDelayMs)
 
@@ -128,6 +115,23 @@ async function runEngine(input: AdapterExecutionEngineInput) {
     // own maxRetries, so a step still failing fell out of the loop and was recorded as completed. The
     // loop now ends only by success, cancellation, or the give-up check.
     for (;;) {
+      // Each attempt opens the step, as the runtime's orchestrator does. The contract verdict closes a
+      // step at step_failed and attributes tool_call events only to an open step, so with a single
+      // step_started the capabilities a retry reported were never compared with the contract.
+      await sessionStore.appendEvent({
+        id: randomUUID(),
+        sessionId,
+        type: 'step_started',
+        timestamp: new Date().toISOString(),
+        agentRole: stepDefinition?.roleId,
+        data: {
+          stepId,
+          index,
+          attempt,
+          capabilityId: stepDefinition?.capabilityId,
+          instructions: stepInstructions,
+        },
+      } satisfies SessionEvent)
       await sessionStore.appendEvent({
         id: randomUUID(),
         sessionId,

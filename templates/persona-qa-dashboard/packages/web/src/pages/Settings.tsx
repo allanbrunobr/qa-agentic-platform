@@ -291,7 +291,7 @@ export function Settings() {
           </div>
           <div>
             <InfoRow label="DB path" value=".agentic-qa/persona-qa.db" />
-            <InfoRow label="Artifacts path" value=".agentic-qa/packages/api/artifacts" />
+            <InfoRow label="Artifacts path" value=".agentic-qa/artifacts" />
             <InfoRow label="Last activity" value={lastActivity ? formatRelativeTime(lastActivity) : 'none'} />
           </div>
         </Card>

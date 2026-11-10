@@ -459,6 +459,9 @@ async function patchInstalledRuntime(installedPath: string, keys: InstallKeys) {
       // Database backups made by upgrade-local.
       '*.pre-upgrade-*.bak',
       'packages/web/dist/',
+      // Run artifacts (screenshots, L5 records). PHASE2_ARTIFACT_DIR defaults to <API cwd>/artifacts:
+      // .agentic-qa/artifacts/ under the launcher, packages/api/artifacts/ when the API runs from there.
+      '/artifacts/',
       'packages/api/artifacts/',
     ].join('\n') + '\n',
     'utf8',

@@ -76,6 +76,23 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 const REPO_ROOT = path.resolve(__dirname, '../../../../../..')
 
+/** Evidence ids, per kind, that a screenshot evidence policy accepts in the current step. */
+interface ScreenshotPolicyEvidence {
+  screenshots: string[]
+  /** collectDomSnippet ids taken while captureScreenshot refused the page as blank. */
+  blankPageSnippets: string[]
+  /** captureScreenshot's last answer in this step was blank_page. */
+  pageBlank: boolean
+}
+
+/** A reportFinding call the runtime refused, as recorded when the model cannot see the refusal. */
+interface RefusedFinding {
+  toolCallId: string
+  title: string | null
+  severity: string | null
+  code: string
+}
+
 interface PendingToolCall {
   toolCallId: string
   toolName: string
@@ -260,7 +277,9 @@ export class AgentRuntime {
     const messages = [...stepContext.messages]
     const collectedFindings: AgentStepOutput['findings'] = []
     const collectedEvidence: string[] = []
-    const screenshotEvidence: string[] = []
+    // What a screenshot evidence policy accepts: a screenshot of this step, or a DOM snippet taken
+    // while captureScreenshot refused the page as blank (a white screen has no other evidence).
+    const screenshotPolicyEvidence: ScreenshotPolicyEvidence = { screenshots: [], blankPageSnippets: [], pageBlank: false }
     const accumulatedOutput: Record<string, unknown> = {}
     const expectedArtifacts = this.extractExpectedArtifacts(messages)
     const stepId = this.extractScenarioStepId(messages)
@@ -475,6 +494,9 @@ export class AgentRuntime {
       }
 
       const toolResultMessages: string[] = []
+      // reportFinding calls refused in this batch. If the batch ends the step, the model never sees
+      // these refusals (seventh pre-PR run, #1), so they are recorded as error events.
+      const refusedFindingsInBatch: RefusedFinding[] = []
 
       for (const toolCall of response.toolCalls) {
         const toolName = toolCall.name ?? toolCall.tool ?? 'unknown'
@@ -538,7 +560,10 @@ export class AgentRuntime {
               expectedArtifacts,
               startedAt,
             )
-            if (completedBeforeDeadline) return this.finishStep(sessionId, profile, completedBeforeDeadline)
+            if (completedBeforeDeadline) {
+              this.recordUnseenFindingRefusals(sessionId, profile, stepId, refusedFindingsInBatch)
+              return this.finishStep(sessionId, profile, completedBeforeDeadline)
+            }
             await this.hooks.emit('onTimeout', {
               sessionId,
               agentRole: profile.role,
@@ -560,7 +585,22 @@ export class AgentRuntime {
         }
 
         if (toolName === REPORT_FINDING_TOOL && result.ok) {
-          result = this.recordReportedFinding(profile, sessionId, stepId, result.output, collectedEvidence, collectedFindings, screenshotEvidence)
+          result = this.recordReportedFinding(profile, sessionId, stepId, result.output, collectedEvidence, collectedFindings, screenshotPolicyEvidence)
+        }
+        if (toolName === REPORT_FINDING_TOOL && !result.ok) {
+          const input = (toolCall.input ?? toolCall.args ?? {}) as Record<string, unknown>
+          refusedFindingsInBatch.push({
+            toolCallId,
+            title: typeof input['title'] === 'string' ? input['title'].slice(0, 200) : null,
+            severity: typeof input['severity'] === 'string' ? input['severity'] : null,
+            code: result.error.code,
+          })
+        }
+        // The page counts as blank from a blank_page refusal until a screenshot succeeds: a page is
+        // about:blank before the first navigation, and a refusal there must not excuse DOM-only
+        // evidence once the page has rendered.
+        if (toolName === 'captureScreenshot') {
+          screenshotPolicyEvidence.pageBlank = !result.ok && result.error.code === 'blank_page'
         }
 
         this.sessionService.appendEvent(sessionId, {
@@ -586,7 +626,10 @@ export class AgentRuntime {
           const output = result.output as Record<string, unknown>
           if (output?.artifactId) {
             collectedEvidence.push(String(output.artifactId))
-            if (toolCall.name === 'captureScreenshot') screenshotEvidence.push(String(output.artifactId))
+            if (toolCall.name === 'captureScreenshot') screenshotPolicyEvidence.screenshots.push(String(output.artifactId))
+            if (toolCall.name === 'collectDomSnippet' && screenshotPolicyEvidence.pageBlank) {
+              screenshotPolicyEvidence.blankPageSnippets.push(String(output.artifactId))
+            }
           }
         }
 
@@ -620,7 +663,10 @@ export class AgentRuntime {
         'required_artifacts_produced_by_tool',
         response.toolCalls,
       )
-      if (completedFromToolOutput) return this.finishStep(sessionId, profile, completedFromToolOutput)
+      if (completedFromToolOutput) {
+        this.recordUnseenFindingRefusals(sessionId, profile, stepId, refusedFindingsInBatch)
+        return this.finishStep(sessionId, profile, completedFromToolOutput)
+      }
 
       if (response.text) {
         messages.push({ role: 'assistant', content: response.text })
@@ -971,6 +1017,33 @@ export class AgentRuntime {
   }
 
   /**
+   * The step ended with the batch that holds these refused reportFinding calls, so their tool results
+   * never reach the model and it cannot correct them. Records each one as an error event, so the lost
+   * finding is visible in the session and not only as a tool_result. Giving the model another round
+   * instead is the deferred decision on a final reporting round (docs/p2-progresso.md).
+   */
+  private recordUnseenFindingRefusals(
+    sessionId: string,
+    profile: AgentProfile,
+    stepId: string | undefined,
+    refused: RefusedFinding[],
+  ): void {
+    for (const finding of refused) {
+      this.sessionService?.appendEvent(sessionId, {
+        type: 'error',
+        agentRole: profile.role,
+        payload: {
+          event: 'finding_refused_at_step_end',
+          ...(stepId ? { stepId } : {}),
+          // The title is model output, like the tool_call input, which is redacted the same way.
+          ...(redactSecrets(finding) as RefusedFinding),
+          error: 'The step ended in the same response as this reportFinding call, so the agent never saw the refusal and the finding was not recorded.',
+        },
+      })
+    }
+  }
+
+  /**
    * Applies the agent's evidence policy to a reported finding, persists it, and adds it to the step
    * output. Returns the tool result the model sees: an error tells it how to attach evidence.
    */
@@ -981,7 +1054,7 @@ export class AgentRuntime {
     output: unknown,
     collectedEvidence: string[],
     collectedFindings: AgentStepOutput['findings'],
-    screenshotEvidence: string[],
+    screenshotPolicyEvidence: ScreenshotPolicyEvidence,
   ): ToolResult {
     const finding = (output as { reportedFinding?: ReportedFinding } | undefined)?.reportedFinding
     if (!finding) {
@@ -989,13 +1062,17 @@ export class AgentRuntime {
     }
 
     const evidence = finding.evidenceArtifactIds.filter((id) => collectedEvidence.includes(id))
-    // A screenshot policy is met by a screenshot of this step; a DOM snippet alone does not count.
-    if (profile.evidencePolicy.requireScreenshotForFinding && !evidence.some((id) => screenshotEvidence.includes(id))) {
+    // A screenshot policy is met by a screenshot of this step. A DOM snippet alone does not count,
+    // unless it was taken while captureScreenshot refused the page as blank: then it is the only evidence.
+    const meetsScreenshotPolicy = evidence.some((id) => screenshotPolicyEvidence.screenshots.includes(id)
+      || screenshotPolicyEvidence.blankPageSnippets.includes(id))
+    if (profile.evidencePolicy.requireScreenshotForFinding && !meetsScreenshotPolicy) {
       return {
         ok: false,
         error: {
           code: 'finding_without_evidence',
-          message: 'This agent must attach evidence to findings: call captureScreenshot in this step and pass the returned artifactId in evidenceArtifactIds.',
+          message: 'This agent must attach evidence to findings: call captureScreenshot in this step and pass the returned artifactId in evidenceArtifactIds. '
+            + 'If captureScreenshot refused the page as blank, pass a collectDomSnippet artifactId instead.',
           retryable: true,
         },
       }

@@ -41,7 +41,12 @@ Changes from the review in `docs/analise-20261109.md`. Item ids (S-, B-, T-, A-,
 - `addEvent` no longer reloads the whole session; invalid stored JSON no longer breaks reads (B-09).
 - Contract step timeouts are honoured; a tool batch runs to the end; a refused install writes
   nothing; `discover-local` keeps the install metadata (B-10).
-- The control-plane engine records the capability a step actually executed (B-11).
+- The control-plane engine records the capability a step actually executed (B-11), and each retry
+  opens the step again, so what a retry executed counts for its step, as in the runtime.
+- Screenshots taken under the launcher (`.agentic-qa/artifacts/`) are gitignored. A finding about a
+  page `captureScreenshot` refuses as blank can use a DOM snippet taken while it is blank. A finding
+  refused in the response that ends its step is recorded as an error event and shown in the agent
+  conversation, instead of disappearing.
 
 ### Changed
 

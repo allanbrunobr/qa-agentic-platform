@@ -229,8 +229,17 @@ function ScreenshotModal({
   )
 }
 
-function summarizeConversationEvent(event: Phase2SessionEvent): { title: string; body: string } | null {
+export function summarizeConversationEvent(event: Phase2SessionEvent): { title: string; body: string } | null {
   const payload = eventPayload(event)
+
+  // A finding the runtime refused in the response that ended its step: the agent never saw the
+  // refusal, so this is the only place the finding shows up.
+  if (event.type === 'error' && payload.event === 'finding_refused_at_step_end') {
+    return {
+      title: `Finding not recorded: ${String(payload.title ?? 'untitled')}`,
+      body: JSON.stringify(payload, null, 2),
+    }
+  }
 
   if (event.type === 'tool_call') {
     return {

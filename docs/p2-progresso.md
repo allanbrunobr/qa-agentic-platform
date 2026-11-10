@@ -1416,3 +1416,45 @@ pontos mais periféricos.
 | #2 `docs/architecture.md` ainda dizia que o control plane tem avaliador próprio e que as diferenças estão fixadas no teste de conformidade, o que deixou de valer com o A-01 | A frase descreve a situação atual: o veredito está em `contract-verdict.ts` e os limiares do gate em `quality-gate-decision.ts`; o core delega aos dois; o teste de conformidade exige o mesmo resultado | — |
 
 **Verificação (rodada 6):** `audit:deps` 0; `lint` 0; `typecheck` 0; `build` 0; `npm test` 0 (API 486, rotas `node:test` 27, web 121); `verify:release` 0; `test:e2e` 0.
+
+## `pre-pr-contradicoes` (rodada 7, `2d74794`): 4 vivos, 6 refutados — corrigidos
+
+| Achado | Correção | Teste (falhou antes) |
+|---|---|---|
+| #1 `reportFinding` recusado na mesma resposta da ação: o passo termina com esse lote, o modelo nunca vê a recusa `retryable` e o achado some em silêncio | Mesma raiz da decisão do Allan (rodada final de registro depois da ação), que continua com ele. Sem rodada extra: cada `reportFinding` recusado no lote que encerra o passo vira um evento `error` (`finding_refused_at_step_end`) com passo, `toolCallId`, título, severidade e código. A descrição do tool avisa que nessa resposta a recusa não chega ao modelo | `report-finding.test.ts`: `[submitOrder, reportFinding sem evidência]` numa resposta → passo `completed`, 1 chamada ao modelo, 0 achados e o evento com o título. Antes não havia evento. Controle: recusa vista pelo modelo não gera o evento |
+| #2 Com o launcher (cwd `.agentic-qa/`), `PHASE2_ARTIFACT_DIR` cai em `.agentic-qa/artifacts/`, que o `.gitignore` gerado não cobria; a doc dizia `packages/api/artifacts/` | O `.gitignore` gerado ganha `/artifacts/` (o `upgrade-local` reaproveita o instalador, então chega também em upgrade). `generated-files.md` e `environment-variables.md` dizem o default e os dois lugares | `hardening.regression.test.ts`: `git check-ignore` de `.agentic-qa/artifacts/screenshots/s1/1.png` e `.agentic-qa/artifacts/l5/...` → antes exit 1; os arquivos revisáveis de `adapter/` continuam fora do ignore |
+| #3 A regra "só screenshot vale" (rodada 6) impedia registrar achado sobre tela em branco: `captureScreenshot` recusa a página (`blank_page`) e o DOM snippet não valia | Um id de `collectDomSnippet` coletado enquanto o `captureScreenshot` recusa a página como em branco satisfaz a política. Sem essa recusa, ou depois de um screenshot bem-sucedido, DOM sozinho continua recusado | `report-finding.test.ts` com os handlers reais e uma SPA em branco: `blank_page` → DOM → achado gravado. Antes `finding_without_evidence`. Controle: DOM sem tentar screenshot → recusado |
+| #4 Control plane: o engine abria o passo uma vez só; o veredito fecha o passo no `step_failed`, então o que o retry reportava ficava fora de qualquer passo. Retry com outra capability saía `compliant`; o inverso saía `drift`. O teste de conformidade montava o retry no formato do runtime | O engine emite `step_started` (com `attempt`) a cada tentativa, como o orchestrator do runtime | `adapter-execution-engine.test.ts`: retry com `refundOrder` → `drift` e `observedTools ["refundOrder"]`; inverso → `compliant`. `contract-conformance.test.ts` ganhou sessões geradas pelo engine real, julgadas pelos dois avaliadores. Antes: os dois sentidos errados |
+
+**Revisão antes do commit (advisor), já incorporada:**
+- #3: a marca de página em branco valia para o passo inteiro. Como a página é `about:blank` antes da
+  primeira navegação, uma recusa ali liberava evidência só de DOM depois que a página renderizava, o
+  que reabria o #1 da rodada 6. Agora só vale um id de `collectDomSnippet` coletado enquanto o último
+  `captureScreenshot` do passo respondeu `blank_page`; um screenshot bem-sucedido desfaz a marca.
+  Teste novo: em branco → screenshot ok → DOM → achado recusado. Os testes de página em branco
+  conferem também `result.findings`, não só o que foi gravado, e apontam `PHASE2_ARTIFACT_DIR` para um
+  diretório temporário (`vi.hoisted`), porque o `session-service` lê a variável ao carregar; medido:
+  o teste não cria arquivo no repositório.
+- #1: o painel "Agent conversation" do dashboard só mostrava tool calls, tool results, handoffs e
+  eventos de passo, então o evento novo ficaria menos visível que o `tool_result`. O painel passou a
+  mostrar "Finding not recorded: <título>" (`AgenticRuns.tsx`, teste `conversation-summary.test.ts`).
+  Leitores de evento `error` conferidos: `extractLastError` e `diagnoseSessionFailure` já tratavam o
+  `tool_result` com `ok:false` como falha, então o evento não muda status nem veredito.
+- #2: `Settings.tsx` mostrava `.agentic-qa/packages/api/artifacts`; passou a `.agentic-qa/artifacts`,
+  coerente com a linha do banco ao lado (default do launcher). `generated-files.md:27` diz onde o
+  runtime escreve sob o launcher. O instalador não apaga nada no destino, então `artifacts/` sobrevive
+  a reinstalação e `upgrade-local`.
+- #4: limite conhecido, igual nos dois lados: as ferramentas se acumulam entre tentativas, então uma
+  tentativa que falhou com a capability declarada seguida de um retry com outra continua `compliant`.
+  O CHANGELOG diz só o que mudou: o que o retry executa conta para o passo.
+
+**Para o Allan (#1):** a variante barata da rodada extra é dar uma rodada só quando o lote que encerra
+o passo tem uma recusa `retryable` do `reportFinding`, oferecendo só as ferramentas de suporte (sem
+risco de repetir a ação). Custo: uma chamada a mais apenas quando o modelo errou a evidência.
+
+**Mutação:** engine antigo → 2 falhas na conformidade; marca de página em branco que não se desfaz →
+1 falha; nunca em branco → 1 falha; qualquer DOM aceito → 3 falhas (inclui o teste da rodada 6); sem
+registrar a recusa não vista → 1 falha; registrar sempre → 1 falha; painel sem o ramo novo → 1 falha.
+Restaurado e conferido com `cmp`.
+
+**Verificação (rodada 7):** `audit:deps` 0; `lint` 0; `typecheck` 0; `build` 0; `npm test` 0 (API 491, rotas `node:test` 27, web 123); `verify:release` 0; `test:e2e` 0.

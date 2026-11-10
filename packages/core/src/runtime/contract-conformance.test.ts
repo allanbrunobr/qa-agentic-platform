@@ -10,7 +10,12 @@
  */
 import { evaluateWorkflowContract } from '../../../../templates/persona-qa-dashboard/packages/api/src/phase2/services/contract-evaluation.ts'
 import { decideQualityGate } from '../../../../templates/persona-qa-dashboard/packages/api/src/phase2/services/quality-gate-decision.ts'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+import { runAdapterExecutionEngine } from './adapter-execution-engine.ts'
 import { buildAdapterContractEvaluation } from './contract-evaluation.ts'
+import { FileSessionStore } from './file-session-store.ts'
 import { buildScenarioQualityGate } from './scenario-quality-gates.ts'
 
 let failed = 0
@@ -133,6 +138,50 @@ const coreDetail = buildAdapterContractEvaluation(
   { scenarios: [{ id: 'scenario', steps: ['create'], stepDefinitions: [{ id: 'create', roleId: 'agent', capabilityId: 'createOrder', producesArtifacts: [] }], expectedArtifacts: [] }] } as never,
 )
 check(coreDetail?.verdict === 'contract_violated' && coreDetail.stepChecks[0]?.neverStarted === true && coreDetail.stepChecks[0]?.roleId === 'agent', `a step that never started is a violation in the core too (got ${coreDetail?.verdict})`)
+
+// 4. A retry as the control-plane engine really records it, not as the runtime would. The sessions
+//    above are written in the runtime's format; this one comes from runAdapterExecutionEngine, so a
+//    difference in how the engine opens a retried step shows up here. Both evaluators read it.
+const engineDir = await mkdtemp(path.join(tmpdir(), 'core-conformance-'))
+try {
+  const engineModel = {
+    manifest: { id: 'm' }, auth: {}, routes: [], capabilities: [], personas: [],
+    scenarios: [{
+      id: 'scenario', title: 'scenario', roles: ['agent'], steps: ['create', 'pay'], expectedArtifacts: [],
+      stepDefinitions: [
+        { id: 'create', roleId: 'agent', capabilityId: 'createOrder', producesArtifacts: [] },
+        { id: 'pay', roleId: 'agent', capabilityId: 'payOrder', producesArtifacts: [] },
+      ],
+    }],
+  }
+  for (const [label, reportOnRetry, expected] of [
+    ['retry ran another capability', 'refundOrder', 'contract_drift'],
+    ['retry ran the declared capability', 'createOrder', 'contract_compliant'],
+  ] as const) {
+    const store = new FileSessionStore({ dataPath: path.join(engineDir, `${expected}.json`) })
+    await store.createSession({ id: 's', scenarioId: 'scenario', status: 'pending', startedAt: '', events: [], artifacts: {}, findings: [], checkpoint: { lastCompletedStep: -1, cursor: 0 } } as never)
+    await runAdapterExecutionEngine({
+      sessionStore: store,
+      sessionId: 's',
+      execution: { executionId: 'e', adapterId: 'm', scenarioId: 'scenario', hostProjectPath: '/x', status: 'initialized', personas: ['agent'], steps: ['create', 'pay'], notes: [] } as never,
+      model: engineModel as never,
+      stepDelayMs: 0,
+      hooks: {
+        executeStep: (ctx: { stepId: string; attempt: number }) => ctx.stepId === 'create' && ctx.attempt === 0
+          ? { status: 'failed', retryable: true, maxRetries: 1, errorMessage: 'flaky', executedCapabilities: reportOnRetry === 'refundOrder' ? [] : ['refundOrder'] }
+          : { executedCapabilities: [ctx.stepId === 'create' ? reportOnRetry : 'payOrder'] },
+      } as never,
+    })
+    const session = await store.getSession('s')
+    const core = buildAdapterContractEvaluation(session as never, { scenarioId: 'scenario' } as never, engineModel as never)
+    const runtime = evaluateWorkflowContract(session as never, {
+      steps: engineModel.scenarios[0].stepDefinitions.map((step, order) => ({ id: step.id, agentId: 'agent', capabilityId: step.capabilityId, order, producedArtifacts: [] })),
+    } as never)
+    check(core?.verdict === expected && runtime.verdict === expected, `engine session, ${label}: both ${expected} (core ${core?.verdict}, runtime ${runtime.verdict})`)
+  }
+} finally {
+  await rm(engineDir, { recursive: true, force: true })
+}
 
 // --- Quality gate: same thresholds on both sides (A-01). ---
 function gateBoth(outcomes: Array<['complete' | 'failed', string | null]>) {
