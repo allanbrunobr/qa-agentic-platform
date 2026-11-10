@@ -1211,3 +1211,29 @@ ser (por exemplo, `vite build` do dashboard e `tsc` da API do template).
   A do backup derrubava o teste com exceção na primeira versão; a checagem agora reporta o motivo.
 
 **Verificação:** `lint` 0; `typecheck` 0; `npm test` 0 (`upgrade-local` no `test:unit`; API 477, rotas `node:test` 27, web 121); `verify:release` 0; `test:e2e` 0.
+
+## `.github/` · Actions por SHA, lint e auditoria no CI — feito (autorizado só neste repositório)
+
+**O que mudou** (`.github/workflows/ci.yml`)
+
+- As actions estão fixadas pelo SHA para onde a tag de major apontava, com a versão exata em
+  comentário. Os SHAs vieram de `git ls-remote --tags` nos repositórios públicos, com a tag anotada
+  derreferenciada e a versão exata conferida pelo mesmo SHA:
+  - `actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0` (era `@v5`);
+  - `actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0` (era `@v5`);
+  - `gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9` (era `@v2`).
+- O job `verify` ganhou dois passos depois da instalação: `npm run lint` (T-08) e
+  `npm run audit:deps` (S-12, reprova com vulnerabilidade alta ou crítica na raiz ou no template).
+- O YAML foi validado com `js-yaml`; os três jobs mantêm os passos anteriores.
+
+**Estado da auditoria agora:** `audit:deps` sai com 0.
+- Raiz: 10 moderadas, todas de ferramentas de desenvolvimento (`typescript-eslint` e `c8`, via
+  `minimatch`/`glob`). As correções que o npm propõe são major, e no `typescript-eslint` seriam um
+  downgrade para 8.36.0.
+- Template: 4 moderadas (`drizzle-kit`).
+- Nenhuma alta.
+
+**Não feito:** Dependabot para atualizar os SHAs. Não foi pedido, e ele abriria PRs no repositório.
+O workflow em si só roda no GitHub; localmente foram rodados os mesmos comandos.
+
+**Verificação:** `audit:deps` 0; `lint` 0; `typecheck` 0; `npm test` 0 (API 477, rotas `node:test` 27, web 121); `verify:release` 0; `test:e2e` 0.
