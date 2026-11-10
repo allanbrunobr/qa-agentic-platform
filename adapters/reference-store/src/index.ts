@@ -36,6 +36,8 @@ function buildStepArtifacts(context: AdapterStepExecutionContext): AdapterStepEx
 
   return {
     summary: `${definition?.roleId ?? 'agent'} executed ${context.stepId}`,
+    // The reference adapter simulates exactly the declared capability, so that is what it reports (B-11).
+    executedCapabilities: definition?.capabilityId ? [definition.capabilityId] : [],
     producedArtifacts: nextArtifacts,
     artifacts: [
       {

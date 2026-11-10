@@ -11,6 +11,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { runAdapterExecutionEngine } from './adapter-execution-engine.ts'
+import { buildAdapterContractEvaluation } from './contract-evaluation.ts'
 import { FileSessionStore } from './file-session-store.ts'
 
 let failed = 0
@@ -99,6 +100,24 @@ try {
     },
   })
   check(defaultAttempts === 2, `without maxRetries a retryable step gets one retry (got ${defaultAttempts} attempts)`)
+
+  // B-11: the engine recorded the DECLARED capability as the tool used, so the contract's capability
+  // check compared the declaration with itself and could never diverge.
+  const toolsOf = (events: Array<{ type: string; data?: Record<string, unknown> }>, stepId: string) => events
+    .filter((event) => event.type === 'tool_call' && event.data?.['stepId'] === stepId && typeof event.data?.['toolName'] === 'string')
+    .map((event) => event.data?.['toolName'])
+
+  const wrongCapability = await run('wrong-capability', {
+    executeStep: (ctx: { stepId: string }) => ({ executedCapabilities: [ctx.stepId === 'b' ? 'refundOrder' : 'capA'] }),
+  })
+  const evaluation = buildAdapterContractEvaluation(wrongCapability.session as never, { scenarioId: 's1' } as never, model)
+  check(JSON.stringify(toolsOf(wrongCapability.session.events, 'b')) === '["refundOrder"]', `the tool recorded for a step is the one the adapter reports (got ${JSON.stringify(toolsOf(wrongCapability.session.events, 'b'))})`)
+  check(evaluation?.verdict === 'contract_drift', `a step that executed another capability is drift, not compliant (got ${evaluation?.verdict})`)
+  check(evaluation?.stepChecks.find((step) => step.stepId === 'b')?.capabilityMismatch === true, 'the mismatched step is flagged')
+
+  const unreported = await run('unreported-capability', { executeStep: () => ({}) })
+  check(toolsOf(unreported.session.events, 'a').length === 0, 'when the adapter reports nothing, the engine does not invent the declared capability as the tool used')
+  check(unreported.session.events.some((event) => event.type === 'tool_call' && event.data?.['declaredCapability'] === 'capA'), 'the dispatch still records which capability was declared')
 } finally {
   await rm(dir, { recursive: true, force: true })
 }

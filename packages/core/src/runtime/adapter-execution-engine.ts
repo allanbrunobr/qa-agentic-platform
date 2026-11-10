@@ -134,10 +134,12 @@ async function runEngine(input: AdapterExecutionEngineInput) {
         type: 'tool_call',
         timestamp: new Date().toISOString(),
         agentRole: stepDefinition?.roleId,
+        // B-11: this is the dispatch. It records the DECLARED capability, not a tool used: recording
+        // the declaration as the tool made the contract's capability check compare it with itself.
         data: {
           stepId,
           index,
-          toolName: stepDefinition?.capabilityId ?? stepId,
+          declaredCapability: stepDefinition?.capabilityId ?? stepId,
           attempt,
         },
       } satisfies SessionEvent)
@@ -152,6 +154,18 @@ async function runEngine(input: AdapterExecutionEngineInput) {
         stepDefinition,
         producedArtifacts,
       })
+
+      // What the adapter reports it actually executed is what the contract compares.
+      for (const capability of result.executedCapabilities ?? []) {
+        await sessionStore.appendEvent({
+          id: randomUUID(),
+          sessionId,
+          type: 'tool_call',
+          timestamp: new Date().toISOString(),
+          agentRole: stepDefinition?.roleId,
+          data: { stepId, index, toolName: capability, attempt, source: 'adapter_report' },
+        } satisfies SessionEvent)
+      }
 
       if ((result.status ?? 'completed') === 'completed') break
 

@@ -28,6 +28,11 @@ export interface AdapterStepExecutionResult {
   errorMessage?: string
   retryable?: boolean
   maxRetries?: number
+  /**
+   * Capabilities (tools) the step actually performed. The contract's capability check compares these
+   * with the declared one; when the adapter reports none, nothing is recorded as used (B-11).
+   */
+  executedCapabilities?: string[]
   artifacts?: AdapterStepArtifactRecord[]
   producedArtifacts?: Record<string, unknown>
   findings?: Array<{

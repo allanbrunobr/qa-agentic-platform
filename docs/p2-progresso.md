@@ -819,3 +819,33 @@ depois da decisão acima.
   - nonce fixo: o caso do nonce por bloco falha.
 
 **Verificação:** `typecheck` 0; `npm test` 0 (boundary no `test:unit`; API 468, rotas `node:test` 27, web 121); `verify:release` 0; `test:e2e` 0.
+
+## B-11 · No core, a checagem de capability divergente era tautológica — feito
+
+**O que mudou**
+
+- O motor do core gravava, antes de executar o passo, um `tool_call` com
+  `toolName = capability declarada`. O avaliador comparava a capability esperada com esse registro,
+  ou seja, com ela mesma. Reproduzido: um passo que executou `refundOrder` no lugar de `capB` saía
+  `contract_compliant`.
+- `AdapterStepExecutionResult` (host-sdk) ganhou `executedCapabilities`: o que o passo executou de
+  fato, informado pelo adapter.
+- O motor:
+  - grava o despacho com `declaredCapability`, sem `toolName`;
+  - depois do `executeStep`, grava um `tool_call` com `toolName` para cada capability reportada
+    (`source: 'adapter_report'`);
+  - se o adapter não reporta nada, nada é gravado como usado: o motor não inventa mais.
+- O adapter de referência simula exatamente a capability declarada, então passa a reportá-la. Nenhum
+  outro leitor de `tool_call` no control plane (grep em `scripts`, `dashboard-api` e
+  `dashboard-web`).
+
+**Testes** (`adapter-execution-engine.test.ts`, no `test:unit`)
+
+- 5 checagens novas, todas falhando antes da correção:
+  - a ferramenta gravada é a reportada;
+  - o passo com capability trocada dá `contract_drift` e fica marcado;
+  - sem relato, nada é gravado como usado;
+  - o despacho ainda registra a capability declarada.
+- Mutação: sem gravar o que o adapter reporta, 3 checagens falham.
+
+**Verificação:** `typecheck` 0; `npm test` 0 (motor do core no `test:unit`; API 468, rotas `node:test` 27, web 121); `verify:release` 0; `test:e2e` 0.
