@@ -3,13 +3,15 @@
  * Run with: npx tsx packages/core/src/runtime/contract-conformance.test.ts
  *
  * The control plane judges executions with packages/core (buildAdapterContractEvaluation); the
- * installed runtime judges sessions with its own copy (evaluateWorkflowContract in the template).
- * Choosing one source of truth is still open. Until then this test runs both on the same sessions:
- * where they must agree it says so, and where they are known to differ it pins the current
- * difference, so a change on either side shows up here instead of in a user's verdict.
+ * installed runtime judges sessions with evaluateWorkflowContract (contract-verdict.ts in the
+ * template). The runtime's is the source of truth and the core delegates to it, adapting its
+ * sessions and models. This test runs both on the same sessions and requires the same verdict, so an
+ * adaptation mistake in the core shows up here instead of in a user's verdict.
  */
 import { evaluateWorkflowContract } from '../../../../templates/persona-qa-dashboard/packages/api/src/phase2/services/contract-evaluation.ts'
+import { decideQualityGate } from '../../../../templates/persona-qa-dashboard/packages/api/src/phase2/services/quality-gate-decision.ts'
 import { buildAdapterContractEvaluation } from './contract-evaluation.ts'
+import { buildScenarioQualityGate } from './scenario-quality-gates.ts'
 
 let failed = 0
 function check(condition: unknown, message: string) {
@@ -106,23 +108,54 @@ const wrongTool = judgeBoth(twoSteps, 'complete', [
 ])
 check(wrongTool.core === 'contract_drift' && wrongTool.runtime === 'contract_drift', `step used a different tool: both drift (core ${wrongTool.core}, runtime ${wrongTool.runtime})`)
 
-// --- Known divergences, pinned. If one of these changes, decide which evaluator is right. ---
+// --- Former divergences. The core now delegates to the runtime's verdict (A-01), so they agree. ---
 
-// 1. An artifact the contract does not list (a screenshot, say): drift for the core, informational
-//    for the runtime. This is the case measured in the report.
+// 1. An artifact the contract does not list (a screenshot, say) is informational, not drift. The core
+//    used to call it drift; this is the case measured in the report.
 const extraArtifact = judgeBoth(twoSteps, 'complete', [
   ['step_started', 'create'], ['tool_call', 'createOrder'], ['step_completed', 'create', ['orderId', 'screenshot_1']],
   ['step_started', 'pay'], ['tool_call', 'payOrder'], ['step_completed', 'pay'],
 ])
-check(extraArtifact.core === 'contract_drift' && extraArtifact.runtime === 'contract_compliant', `KNOWN DIVERGENCE extra artifact: core drift, runtime compliant (core ${extraArtifact.core}, runtime ${extraArtifact.runtime})`)
+check(extraArtifact.core === 'contract_compliant' && extraArtifact.runtime === 'contract_compliant', `extra artifact: both compliant (core ${extraArtifact.core}, runtime ${extraArtifact.runtime})`)
 
-// 2. A composite capability performed by its tools: the runtime accepts it, the core only accepts a
+// 2. A composite capability performed by its tools satisfies the step. The core used to require a
 //    tool named exactly like the capability.
 const compositeSteps: StepSpec[] = [{ id: 'close', capabilityId: 'validateManagementClosure' }]
 const composite = judgeBoth(compositeSteps, 'complete', [
   ['step_started', 'close'], ['tool_call', 'verifyFinanceDashboard'], ['tool_call', 'verifyReportsPage'], ['step_completed', 'close'],
 ])
-check(composite.core === 'contract_drift' && composite.runtime === 'contract_compliant', `KNOWN DIVERGENCE composite capability: core drift, runtime compliant (core ${composite.core}, runtime ${composite.runtime})`)
+check(composite.core === 'contract_compliant' && composite.runtime === 'contract_compliant', `composite capability: both compliant (core ${composite.core}, runtime ${composite.runtime})`)
+
+// 3. Same verdict object, not just the same label: the core result is the runtime result adapted.
+const coreDetail = buildAdapterContractEvaluation(
+  { status: 'complete', events: [], artifacts: {} } as never,
+  { scenarioId: 'scenario' } as never,
+  { scenarios: [{ id: 'scenario', steps: ['create'], stepDefinitions: [{ id: 'create', roleId: 'agent', capabilityId: 'createOrder', producesArtifacts: [] }], expectedArtifacts: [] }] } as never,
+)
+check(coreDetail?.verdict === 'contract_violated' && coreDetail.stepChecks[0]?.neverStarted === true && coreDetail.stepChecks[0]?.roleId === 'agent', `a step that never started is a violation in the core too (got ${coreDetail?.verdict})`)
+
+// --- Quality gate: same thresholds on both sides (A-01). ---
+function gateBoth(outcomes: Array<['complete' | 'failed', string | null]>) {
+  const now = Date.UTC(2026, 0, 1)
+  const core = buildScenarioQualityGate('adapter', 'scenario', outcomes.map(([sessionStatus, verdict], index) => ({
+    adapterId: 'adapter',
+    scenarioId: 'scenario',
+    sessionStatus,
+    startedAt: new Date(now - index * 1000).toISOString(),
+    contractEvaluation: verdict ? { verdict } as never : null,
+  })))
+  return { core: core.status, runtime: decideQualityGate(outcomes.map(([sessionStatus, verdict]) => ({ sessionStatus, verdict }))).status }
+}
+for (const [label, outcomes, expected] of [
+  ['three violations', [['failed', 'contract_violated'], ['failed', 'contract_violated'], ['failed', 'contract_violated']], 'restricted'],
+  ['one violation', [['failed', 'contract_violated'], ['complete', 'contract_compliant']], 'review_required'],
+  ['two failures in a row', [['failed', 'contract_compliant'], ['failed', 'contract_compliant']], 'review_required'],
+  ['three drifts', [['complete', 'contract_drift'], ['complete', 'contract_drift'], ['complete', 'contract_drift']], 'review_required'],
+  ['clean', [['complete', 'contract_compliant'], ['complete', 'contract_compliant']], 'open'],
+] as const) {
+  const gate = gateBoth(outcomes.map(([status, verdict]) => [status, verdict]))
+  check(gate.core === expected && gate.runtime === expected, `gate ${label}: both ${expected} (core ${gate.core}, runtime ${gate.runtime})`)
+}
 
 if (failed > 0) {
   console.error(`\n${failed} contract conformance check(s) failed`)

@@ -1084,3 +1084,50 @@ um `build` só para passar no hook; fica para o Allan decidir o que o build dest
 ser (por exemplo, `vite build` do dashboard e `tsc` da API do template).
 
 **Verificação:** `lint` 0; `typecheck` 0; `npm test` 0 (API 477, rotas `node:test` 27, web 121); `verify:release` 0; `test:e2e` 0.
+
+## A-01 · Fonte única para o veredito e para o gate — feito
+
+**Escolha:** o avaliador do runtime (template) é a fonte da verdade.
+
+**Motivo:** é o que a maior parte dos chamadores e testes já usa.
+- 6 chamadores em produção: rotas de sessão, gates, maturidade, loop L5, WebSocket e estatísticas.
+- O do core tinha 1: `governance-service`.
+- Os vereditos que o e2e confere (`contract_violated` no app quebrado) são os do runtime.
+- O runtime é o código que roda no repositório de cada usuário. O core vive só no control plane,
+  e o runtime instalado não pode importar `packages/core`, ao passo que o core pode importar o
+  template.
+
+**O que mudou**
+
+- `templates/.../phase2/services/contract-verdict.ts`: a parte pura do veredito
+  (`evaluateWorkflowContract`, `summarizeStepOutcomes`), movida sem mudar a lógica. Ela depende só
+  de `composite-capabilities.ts`, e a entrada usa tipos estruturais mínimos. O
+  `contract-evaluation.ts` do runtime ficou só com o carregamento do cenário e reexporta essas duas
+  funções. Ganhou uma opção `expectedArtifacts`, para um contrato que declara os próprios artefatos;
+  sem ela, o comportamento do runtime é o de antes.
+- `templates/.../phase2/services/quality-gate-decision.ts`: os limiares do gate
+  (`decideQualityGate`), que eram idênticos nas duas cópias. O gate do runtime continua aplicando o
+  reset e a dica da rota de reset no motivo de `restricted`; o texto final é o mesmo de antes.
+- `packages/core`: `buildAdapterContractEvaluation`, `summarizeStepOutcomes` e
+  `buildScenarioQualityGate` passam a delegar. O core só adapta a entrada:
+  - artefatos produzidos tirados dos eventos;
+  - ordem esperada pelo índice no cenário;
+  - `expectedArtifacts` do cenário;
+  - `roleId` no lugar de `agentId`.
+  As assinaturas e os tipos públicos do core ficaram iguais; `informationalArtifacts` foi acrescentado.
+- Efeito no control plane: as duas divergências medidas somem. Um artefato fora do contrato deixa
+  de ser drift (vira informativo), e uma capability composta feita pelas suas ferramentas passa a
+  satisfazer o passo.
+
+**Testes**
+
+- `contract-conformance.test.ts` exige agora o mesmo veredito dos dois lados em 7 sessões, incluindo
+  as 2 antigas divergências. Antes da troca dos rótulos, os casos "KNOWN DIVERGENCE" falharam,
+  mostrando que a delegação mudou o comportamento do core.
+- O teste ganhou mais 6 checagens:
+  - um passo nunca iniciado continua sendo violação no core, com `roleId` preenchido;
+  - 5 sequências de gate (restricted, review por violação, por falhas seguidas, por drift, e open)
+    dão o mesmo status no core e no runtime.
+- Os 477 testes do runtime e os testes do core (avaliação, motor e B-11) passam sem mudança.
+
+**Verificação:** `lint` 0; `typecheck` 0; `npm test` 0 (API 477, rotas `node:test` 27, web 121); `verify:release` 0; `test:e2e` 0.
