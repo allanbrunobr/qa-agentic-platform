@@ -182,7 +182,7 @@ async function pathExists(targetPath: string): Promise<boolean> {
   }
 }
 
-async function resolveTemplateRoot(): Promise<string> {
+export async function resolveTemplateRoot(): Promise<string> {
   if (await pathExists(CONFIGURED_TEMPLATE_ROOT)) return CONFIGURED_TEMPLATE_ROOT
 
   throw new Error(

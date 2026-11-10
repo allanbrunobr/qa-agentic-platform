@@ -1166,3 +1166,48 @@ ser (por exemplo, `vite build` do dashboard e `tsc` da API do template).
   passando.
 
 **Verificação:** `lint` 0; `typecheck` 0; `npm test` 0 (API 477, rotas `node:test` 27, web 121); `verify:release` 0; `test:e2e` 0.
+
+## A-03 · Comando `upgrade-local` — feito
+
+**O que mudou**
+
+- `npm run upgrade-local -- <repo>`
+  (`packages/dashboard-api/src/services/local-package-upgrader.ts`, `cli/upgrade-local.ts`). O
+  comando não destrói dados:
+  1. Exige uma instalação existente (metadata presente). Sem ela, falha sem criar nada.
+  2. Checagem prévia **só leitura**: cada banco do runtime dentro de `.agentic-qa` é aberto com
+     `node:sqlite` em `readOnly`. Um banco escrito por um runtime mais novo
+     (`SchemaTooNewError`) interrompe o upgrade antes de qualquer escrita.
+  3. Recopia só o código do runtime via `install-local`. Adapter, bancos e artefatos não são tocados,
+     e o `.env.local` é mesclado (item anterior).
+  4. Para cada banco com migração pendente: `wal_checkpoint(TRUNCATE)`, cópia para
+     `<banco>.pre-upgrade-<timestamp>.bak` (sem sobrescrever uma cópia existente) e as migrações,
+     cada uma na sua transação.
+  5. Registra `lastUpgrade` no metadata (versão anterior, data, migrações aplicadas e backups).
+  Um `DATABASE_URL` apontando para fora de `.agentic-qa` é reportado e deixado como está.
+- As migrações vêm do template sendo instalado (`resolveTemplateRoot`, que respeita
+  `AGENTIC_QA_TEMPLATE_ROOT`) e são carregadas por import dinâmico. Para isso, o DDL dos dois
+  componentes saiu de `db/index.ts` e de `SessionService` para `templates/.../db/runtime-schema.ts`
+  (`runtimeMigrations`), um módulo sem driver. Os textos foram comparados com os do commit anterior:
+  idênticos.
+- README e `docs/generated-files.md` documentam o comando, o backup e o `lastUpgrade`.
+
+**Testes** (`packages/dashboard-api/src/upgrade-local.test.ts`, no `test:unit`, 18 checagens)
+
+- Sem instalação: recusado, e nada é criado.
+- Instalação antiga com um banco em schema antigo, um arquivo de adapter revisado à mão e uma
+  variável no `.env.local`:
+  - colunas adicionadas; sessão e run antigos mantidos; os dois componentes registrados;
+  - backup byte a byte igual ao original;
+  - adapter e variável intactos;
+  - metadata com a versão anterior.
+- Segunda execução: nada pendente e nenhum backup novo.
+- Banco de runtime mais novo: recusado, com o banco byte a byte igual, o código instalado
+  preservado (sentinela intacta) e nenhum backup.
+- Mutações, todas pegas:
+  - sem o backup: 2 falhas;
+  - sem a checagem prévia: o banco e o código instalado são alterados (3 falhas);
+  - sem aplicar as migrações: 1 falha.
+  A do backup derrubava o teste com exceção na primeira versão; a checagem agora reporta o motivo.
+
+**Verificação:** `lint` 0; `typecheck` 0; `npm test` 0 (`upgrade-local` no `test:unit`; API 477, rotas `node:test` 27, web 121); `verify:release` 0; `test:e2e` 0.

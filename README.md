@@ -95,6 +95,8 @@ npm run discover-local -- "$TARGET"
 
 Discovery writes generated files such as `adapter/scenarios/scenarios.generated.json` and `adapter/workflow-contracts/*.generated.yaml` to `$TARGET/.agentic-qa/`. For the example app, it finds two scenarios: `browse_products` and `place_order`.
 
+To bring an existing `.agentic-qa` to a newer version of this platform, stop its runtime and run `npm run upgrade-local -- "$TARGET"`. It replaces only the runtime code, keeps the adapter files, databases, artifacts and your `.env.local` variables, backs up each database before applying its pending schema migrations, and refuses (changing nothing) a database written by a newer runtime.
+
 **3. Start the application under test**
 
 The example app is a single static page. Any static server works:

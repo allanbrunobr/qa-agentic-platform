@@ -19,7 +19,7 @@ Source: `packages/dashboard-api/src/services/local-package-installer.ts`.
 | `packages/web/` | React dashboard source. | No |
 | `vendor/better-sqlite3-shim/` | Small `better-sqlite3`-compatible shim over Node's built-in `node:sqlite`, so the runtime needs no native build. | No |
 | `scripts/start-local-dashboard.generated.sh` | Launcher. Installs dependencies on first run, installs Playwright Chromium for frontend repositories, loads `.env.local`, starts the API on `127.0.0.1` and the dashboard. Defaults: API port `3201`, web port `5176` (`--api-port`, `--web-port`). | No |
-| `adapter/config/install-metadata.generated.json` | Install time, template version (`templateVersion`) and source, mode (`host-local-runtime`), ports, and the result of API key validation. Contains no secret. `discover-local` keeps it. | No |
+| `adapter/config/install-metadata.generated.json` | Install time, template version (`templateVersion`) and source, mode (`host-local-runtime`), ports, and the result of API key validation, and `lastUpgrade` after an `upgrade-local`. Contains no secret. `discover-local` keeps it. | No |
 | `.env.example` | Empty `ANTHROPIC_API_KEY=` and `OPENAI_API_KEY=` entries. | Copy to `.env.local` if you want to set keys by hand. |
 | `.env.local` | Provider keys, file mode `0600`. On reinstall the existing file is merged: your variables, comments and keys stay as they are, and a provider key is added only when it is missing; lines that are not assignments are dropped. A key with unsafe characters stops the install before anything is written. **Contains a secret.** | Yes, but never commit it. |
 | `.gitignore` | Ignores `.env.local`, `node_modules/`, `data/`, SQLite files, `packages/web/dist/`, and `packages/api/artifacts/`, so the host repository can commit `.agentic-qa/` without secrets or local state. | Optional |
@@ -55,7 +55,7 @@ Written while the runtime runs. All of it is local state; none of it should be c
 
 | Path | What it is |
 | --- | --- |
-| `persona-qa.db` (plus `-wal`/`-shm`) | SQLite session store: sessions, steps, events, findings, verdicts, L4/L5 records. Created in the API working directory, which is `.agentic-qa/` when you use the launcher. Override with `DATABASE_URL`. |
+| `persona-qa.db` (plus `-wal`/`-shm`) | SQLite session store: sessions, steps, events, findings, verdicts, L4/L5 records. Created in the API working directory, which is `.agentic-qa/` when you use the launcher. Override with `DATABASE_URL`. Its schema is versioned (`schema_migrations`); `upgrade-local` applies pending migrations after copying it to `persona-qa.db.pre-upgrade-<timestamp>.bak`. |
 | `packages/api/artifacts/screenshots/<sessionId>/` | Screenshots captured as evidence. |
 | `data/runtime-settings.json` | Provider and model selected in the dashboard settings page. |
 | `data/runtime-api.token` | Local API token, created on first start (mode `0600`). **Secret**: every API request except `GET /health` needs it, and `data/` is gitignored. Delete it to rotate; the next start creates a new one. |
