@@ -1326,7 +1326,7 @@ Nenhum dos 12 achados da rodada 1 voltou. Os 6 vivos são novos.
 | 4. Reinstalação preserva o `.env.local` | Feito, incluindo linha de chave vazia contando como ausente. A documentação diz que o launcher só carrega as duas chaves de provedor |
 | 5. `.github/` · `audit:deps` no CI e actions por SHA | Feito: `checkout` v5.1.0, `setup-node` v5.0.0 e `gitleaks-action` v2.3.9, com a versão em comentário. Lint e auditoria entraram no job `verify` |
 | 6. Temporários | Feito: 245 diretórios `agentic-platform-*` apagados, nenhum em uso, 11,81 GB liberados |
-| `pre-pr-contradicoes` | Rodada 1 (`768b30f`): 12 vivos, todos corrigidos. Rodada 2 (`0956b06`): 6 vivos; 3 corrigidos e 3 com a mesma raiz deixados como decisão de produto (seção acima). Rodada 3 sobre o código final: ver abaixo |
+| `pre-pr-contradicoes` | Rodada 1 (`768b30f`): 12 vivos, todos corrigidos. Rodada 2 (`0956b06`): 6 vivos; 3 corrigidos e 3 com a mesma raiz deixados como decisão de produto (seção acima). Rodada 3 (`0e5a3f9`): 4 vivos, corrigidos. Rodada 4 (`eba2e8e`): 5 vivos, corrigidos (seção "Rodada 4" abaixo) |
 
 **Continua esperando o Allan**
 
@@ -1349,3 +1349,21 @@ anteriores voltou.
 | #4 Nenhum teste cobria a ordem que a descrição do `reportFinding` prescreve num passo que declara artefato | Teste novo: screenshot numa resposta e, na seguinte, a ação junto com o `reportFinding` → achado gravado com a evidência, passo concluído em 2 chamadas | Cobertura do comportamento atual (passa antes e depois) |
 
 **Verificação (rodada 3):** `audit:deps` 0; `lint` 0; `typecheck` 0; `npm test` 0 (API 485, rotas `node:test` 27, web 121); `verify:release` 0; `test:e2e` 0.
+
+## `pre-pr-contradicoes` (rodada 4, `eba2e8e`): 5 vivos, 7 refutados — corrigidos
+
+Nenhum achado das rodadas anteriores voltou. Os de agora estão nas bordas do que foi mexido.
+
+| Achado | Correção | Teste (falhou antes) |
+|---|---|---|
+| #1 `upgrade-local` recusava instalações cujo metadata o `discover-local` antigo tinha apagado (B-10), ou seja, quase todas as instalações feitas seguindo o README anterior | A instalação é reconhecida pelo código do runtime (`packages/api/package.json`), não só pelo metadata. A versão anterior fica `null` e o metadata é regravado | `upgrade-local.test.ts`: metadata apagado → upgrade feito, banco com backup e migrado, metadata de volta. Com o upgrader anterior, os 3 casos falham |
+| #2, #3 O backup `*.pre-upgrade-*.bak` não estava no `.gitignore` gerado, então aparecia para commit no repositório hospedeiro | Padrão `*.pre-upgrade-*.bak` no `.gitignore` | `hardening`: `git check-ignore` num repositório temporário com o `.gitignore` gerado |
+| #4 `verify:env-docs` não enxergava as leituras feitas por `envState([...])` em `routes/stats.ts` (`TEST_USER`, `TEST_PASSWORD`, `RECEPTIONIST_USER`) e a documentação dizia "todas" | O verificador passou a ler os nomes passados a `envState([...])`, e as 3 variáveis foram documentadas (82/82). O texto do documento, do README e do CHANGELOG deixou de prometer "todas": diz que a checagem é por padrão e não vê nomes montados em tempo de execução | Sem o documento atualizado, o verificador acusou as 3 |
+| #5 Uma chave do `.env.local` com caracteres que o launcher recusa era trocada em silêncio, e o README dizia "kept as it is" | O resultado e o metadata da instalação ganharam `envLocalReplacedKeys`. O README descreve a normalização e a troca | `hardening`: `envLocalReplacedKeys` lista a chave só no caso do valor recusado |
+
+**Carimbo:** a rodada 4 carimbou `eba2e8e`. Os commits de correção e de documentação feitos depois
+não foram revistos por uma rodada 5, e o portão de PR (`exige-pre-pr.sh`) vai exigir uma nova
+rodada sobre o HEAD antes do PR. As rodadas vêm convergindo (12, 6, 4, 5 achados), sempre em
+pontos mais periféricos.
+
+**Verificação (rodada 4):** `audit:deps` 0; `lint` 0; `typecheck` 0; `npm test` 0 (`verify-env-docs` 82/82; API 485, rotas `node:test` 27, web 121); `verify:release` 0; `test:e2e` 0.

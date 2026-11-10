@@ -106,10 +106,16 @@ export async function upgradeLocalPackage(input: { repoPath: string; now?: Date 
   if (!input.repoPath) throw new Error('repoPath is required')
   const installedPath = await resolveConfinedInstallPath(input.repoPath)
   const metadataPath = path.join(installedPath, 'adapter', 'config', 'install-metadata.generated.json')
-  if (!(await isRegularFile(metadataPath))) {
+  // An install is recognised by its runtime code. The install metadata alone is not enough: the
+  // discover-local of earlier versions deleted it (B-10), and those installs are what this upgrades.
+  const hasMetadata = await isRegularFile(metadataPath)
+  const hasRuntime = await isRegularFile(path.join(installedPath, 'packages', 'api', 'package.json'))
+  if (!hasMetadata && !hasRuntime) {
     throw new Error(`upgrade-local: no installed runtime at ${installedPath}. Run install-local first.`)
   }
-  const previous = JSON.parse(await readFile(metadataPath, 'utf8')) as { templateVersion?: unknown }
+  const previous = hasMetadata
+    ? JSON.parse(await readFile(metadataPath, 'utf8')) as { templateVersion?: unknown }
+    : {}
 
   const templateRoot = await resolveTemplateRoot()
   const { migrations, schema } = await loadTemplateModules(templateRoot)

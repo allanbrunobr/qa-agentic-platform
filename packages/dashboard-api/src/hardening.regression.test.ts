@@ -820,13 +820,22 @@ async function testKeptKeyIsReadByLauncher() {
       ['a value the loader refuses', 'ANTHROPIC_API_KEY="has spaces and !"', 'sk-ant-from-install'],
     ] as const) {
       await writeFile(envPath, `${line}\n`)
-      await installLocalPackage({ repoPath: repo })
+      const reinstalled = await installLocalPackage({ repoPath: repo })
       const loaded = spawnSync(process.execPath, [loader, envPath], { encoding: 'utf8' })
       assert(
         loaded.status === 0 && loaded.stdout.includes(`export ANTHROPIC_API_KEY='${expected}'`),
         `${label}: the key in effect after reinstall is the one the launcher loads (${expected}; got ${JSON.stringify(loaded.stdout.trim() || loaded.stderr.trim())})`,
       )
+      // Fourth pre-PR run, #5: a replaced key is reported, not swapped in silence.
+      const replaced = reinstalled.envLocalReplacedKeys ?? []
+      const wasReplaced = expected === 'sk-ant-from-install'
+      assert(replaced.includes('ANTHROPIC_API_KEY') === wasReplaced, `${label}: envLocalReplacedKeys ${wasReplaced ? 'reports' : 'does not report'} the key (got ${JSON.stringify(replaced)})`)
     }
+
+    // Fourth pre-PR run, #2/#3: upgrade-local backups stay out of the host repository's git.
+    const gitInit = spawnSync('git', ['init', '-q'], { cwd: repo, encoding: 'utf8' })
+    const ignored = spawnSync('git', ['check-ignore', '-q', '.agentic-qa/persona-qa.db.pre-upgrade-2026-11-10T12-00-00-000Z.bak'], { cwd: repo, encoding: 'utf8' })
+    assert(gitInit.status === 0 && ignored.status === 0, `the generated .gitignore ignores upgrade-local database backups (check-ignore exit ${ignored.status})`)
   } finally {
     for (const key of keys) {
       if (savedEnv[key] === undefined) delete process.env[key]

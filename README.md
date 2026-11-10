@@ -154,7 +154,7 @@ The installer looks for the Anthropic key in these sources, in order. It uses th
 4. `ANTHROPIC_API`
 5. the target's `.agentic-qa/.env.local`
 
-On a reinstall or `upgrade-local`, a key already set in the target's `.agentic-qa/.env.local` is kept as it is; the order above only decides a key that is missing there (an empty `ANTHROPIC_API_KEY=` line counts as missing).
+On a reinstall or `upgrade-local`, a key already set in the target's `.agentic-qa/.env.local` is kept, rewritten as `KEY="value"` (the only form the launcher reads); the order above only decides a key that is missing there. An empty line (`ANTHROPIC_API_KEY=`) counts as missing, and so does a value with characters the launcher refuses: it is replaced, and the install result lists it in `envLocalReplacedKeys`.
 
 The installer looks for the OpenAI key in these sources, in order: `agentic-platform/.env.local`, `OPENAI_API_KEY`, the target's `.agentic-qa/.env.local`. In the generated dashboard, **Settings** selects the provider for the next run.
 
@@ -256,7 +256,7 @@ Other verifiers are available as `npm run verify:<name>`. See the `scripts` sect
 - [Architecture](docs/architecture.md): components, data flow, maturity levels L1–L5, security boundaries
 - [Generated files](docs/generated-files.md): what `install-local` and `discover-local` write, and what to review
 - [Testing](docs/testing.md): test layers and how to run each one
-- [Environment variables](docs/environment-variables.md): every variable the code reads, checked by `npm run verify:env-docs`
+- [Environment variables](docs/environment-variables.md): the variables the code reads, checked by `npm run verify:env-docs`
 - [Decision records](docs/decisions/): why the runtime is host-local, why runs are checked against deterministic contracts, why generic capabilities fail closed, how repository content is treated as untrusted
 - [Contributor and agent guidelines](AGENTIC.md)
 - [Changelog](CHANGELOG.md)

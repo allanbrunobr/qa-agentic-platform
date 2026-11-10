@@ -1,8 +1,8 @@
 # Environment variables
 
-Every environment variable the code reads, grouped by where it is read. `npm run verify:env-docs` (part
-of `npm run test:unit`) fails when the code reads a variable that is not listed here. How the check
-finds variables is described in `scripts/verify-env-docs.mjs`.
+The environment variables the code reads, grouped by where they are read. `npm run verify:env-docs`
+(part of `npm run test:unit`) fails when it finds a read of a variable that is not listed here. It finds
+reads by pattern (see `scripts/verify-env-docs.mjs`); a name assembled at run time is not seen.
 
 Variables of the installed runtime (`.agentic-qa`) are read from the process environment. The launcher
 loads only `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` from `.agentic-qa/.env.local`; any other variable
@@ -63,6 +63,7 @@ must be set in the environment the launcher (or `upgrade-local`) is started from
 | `AGENTIC_QA_FAKE_WORKFLOW_TOOLS` | `1` uses fake workflow tools (tests and demos). |
 | `AGENTIC_QA_INSTRUCTIONS_PATH` | `AGENTIC.md` with the global agent instructions, when not at the default path. |
 | `HEADLESS` | `false` opens a visible browser. |
+| `TEST_USER`, `TEST_PASSWORD`, `RECEPTIONIST_USER` | Credentials for the application under test. The dashboard's **Settings** reports whether each is set (`/api/stats`); set them in the environment the launcher is started from. |
 | `PERSONA_QA_PERSONAS_FILE` | Generated personas file. |
 | `PERSONA_QA_SCENARIOS_FILE` | Generated scenarios file. |
 | `PERSONA_QA_PROMOTED_SCENARIOS_FILE` | Scenarios promoted by the L5 loop. |

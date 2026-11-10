@@ -124,6 +124,22 @@ try {
   check(second?.backup === null && JSON.stringify(second?.applied) === '{}', 'a second upgrade has nothing pending and makes no backup')
   check((await readdir(installed)).filter((name) => name.includes('.pre-upgrade-')).length === 1, 'still exactly one backup of the main database')
 
+  // 3b. Fourth pre-PR run, #1: the discover-local of earlier versions deleted the install metadata.
+  //     Such an install is recognised by its runtime code and upgraded, with no previous version known.
+  const noMetadata = await tempRepo('no-metadata')
+  await installLocalPackage({ repoPath: noMetadata })
+  const noMetadataRoot = path.join(noMetadata, '.agentic-qa')
+  writeOldDatabase(path.join(noMetadataRoot, 'persona-qa.db'))
+  await rm(path.join(noMetadataRoot, 'adapter', 'config', 'install-metadata.generated.json'))
+  let noMetadataError = ''
+  const recovered = await upgradeLocalPackage({ repoPath: noMetadata }).catch((error) => {
+    noMetadataError = error instanceof Error ? error.message : String(error)
+    return null
+  })
+  check(recovered !== null && recovered.previousTemplateVersion === null, `an install whose metadata an older discover-local deleted is still upgraded (${noMetadataError || 'ok'})`)
+  check(Boolean(recovered?.databases.find((item) => item.path === 'persona-qa.db')?.backup), 'its database is backed up and migrated')
+  check(await exists(path.join(noMetadataRoot, 'adapter', 'config', 'install-metadata.generated.json')), 'the install metadata is written again')
+
   // 4. A database from a newer runtime: refused before any write, the installed code included.
   const newer = await tempRepo('newer')
   await installLocalPackage({ repoPath: newer })

@@ -52,7 +52,7 @@ Changes from the review in `docs/analise-20261109.md`. Item ids (S-, B-, T-, A-,
   temp fixtures (T-06, T-07).
 - Tests: runtime tests are type-checked; coverage is measured (`npm run test:coverage`); the risk
   policy, hardening and boundary tests check behaviour instead of strings (T-01 to T-05).
-- `docs/environment-variables.md` lists every variable the code reads; `npm run verify:env-docs`
+- `docs/environment-variables.md` lists the variables the code reads; `npm run verify:env-docs`
   enforces it (M-01).
 
 ## [0.1.0] - 2026-10-22

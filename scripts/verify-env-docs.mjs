@@ -3,8 +3,10 @@
 //
 // Counted as a read, in non-test source files:
 //   - process.env.NAME, process.env['NAME'], env.NAME, env['NAME'];
+//   - names in an envState([...]) call (routes/stats.ts);
 //   - any string literal AGENTIC_*, PERSONA_QA_*, PHASE2_*, ANTHROPIC_* or OPENAI_*, which also catches names passed
 //     to helpers such as readNumberEnv('...').
+// A name built at run time from other parts is not seen.
 // Not counted: Vite's import.meta.env, and the process-level names in IGNORED.
 // Documented means the name appears in backticks in the doc.
 import fs from 'node:fs'
@@ -42,20 +44,26 @@ function* files(entry) {
 }
 
 const READ = /(?<!meta\.)\benv(?:\.([A-Z][A-Z0-9_]{2,})|\[\s*['"]([A-Z][A-Z0-9_]{2,})['"]\s*\])/g
-const PREFIXED_LITERAL = /['"`]((?:AGENTIC|PERSONA_QA|PHASE2|ANTHROPIC|OPENAI)_[A-Z0-9_]+)['"`]/g
+const ENV_STATE_CALL = /\benvState\(\s*\[([^\]]*)\]/g
+const PREFIXED_LITERAL =/['"`]((?:AGENTIC|PERSONA_QA|PHASE2|ANTHROPIC|OPENAI)_[A-Z0-9_]+)['"`]/g
 
 const found = new Map()
 for (const root of roots) {
   for (const file of files(root)) {
     if (!SOURCE.test(file) || TEST.test(file) || file === path.join('scripts', 'verify-env-docs.mjs')) continue
     const text = fs.readFileSync(path.join(repoRoot, file), 'utf8')
+    const names = []
     for (const pattern of [READ, PREFIXED_LITERAL]) {
-      for (const match of text.matchAll(pattern)) {
-        const name = match[1] ?? match[2]
-        if (!name || IGNORED.has(name)) continue
-        if (!found.has(name)) found.set(name, new Set())
-        found.get(name).add(file)
-      }
+      for (const match of text.matchAll(pattern)) names.push(match[1] ?? match[2])
+    }
+    // Names read through a helper that takes a list: envState(['TEST_USER'], ...) in routes/stats.ts.
+    for (const match of text.matchAll(ENV_STATE_CALL)) {
+      for (const literal of match[1].matchAll(/['"`]([A-Z][A-Z0-9_]{2,})['"`]/g)) names.push(literal[1])
+    }
+    for (const name of names) {
+      if (!name || IGNORED.has(name)) continue
+      if (!found.has(name)) found.set(name, new Set())
+      found.get(name).add(file)
     }
   }
 }
