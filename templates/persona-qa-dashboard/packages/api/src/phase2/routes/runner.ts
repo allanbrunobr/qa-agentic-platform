@@ -3,7 +3,7 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { dump } from 'js-yaml'
 import { listScenarios, loadScenario } from '../scenarios/index.js'
-import { buildScenarioQualityGateForSessions } from '../services/scenario-quality-gates.js'
+import { buildScenarioQualityGateForScenario } from '../services/scenario-quality-gates.js'
 import { createPhase2Runtime } from '../services/runtime-bootstrap.js'
 import {
   parseExecutionContext,
@@ -19,6 +19,10 @@ import { getSessionService } from './sessions.js'
 import { loadRuntimeSettings } from '../../services/runtime-settings.js'
 import { validateProviderCredentials } from '../providers/provider-factory.js'
 
+const ResetQualityGateBody = z.object({
+  reason: z.string().trim().min(10).max(500),
+})
+
 const StartAgenticRunBody = z.object({
   scenario_id: z.string(),
   seed_artifacts: z.record(z.string()).optional(),
@@ -27,10 +31,11 @@ const StartAgenticRunBody = z.object({
 
 export async function phase2RunnerRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/p2/scenarios', async (_request, reply) => {
-    const sessions = getSessionService().getAllSessions()
+    const sessionService = getSessionService()
+    const sessions = sessionService.getAllSessions()
     const scenarios = listScenarios().map((scenarioId) => {
       const scenario = loadScenario(scenarioId)
-      const gate = buildScenarioQualityGateForSessions(scenario.id, sessions)
+      const gate = buildScenarioQualityGateForScenario(sessionService, scenario.id, sessions)
       return {
         id: scenario.id,
         name: scenario.name,
@@ -75,6 +80,31 @@ export async function phase2RunnerRoutes(app: FastifyInstance): Promise<void> {
     })
   })
 
+  // Operator exit from a quality gate (B-01). A restricted scenario rejects new runs, and without new
+  // runs its recent-session window never changes, so it would stay restricted forever. A reset with a
+  // reason makes the gate ignore sessions started before it; the scenario then requalifies on new
+  // runs. Resets are stored with their reason and the status they cleared, and are never deleted.
+  app.post<{ Params: { scenarioId: string } }>('/api/p2/scenarios/:scenarioId/quality-gate/reset', async (request, reply) => {
+    const parsed = ResetQualityGateBody.safeParse(request.body ?? {})
+    if (!parsed.success) {
+      return reply.status(400).send({ error: 'invalid_body', details: parsed.error.flatten() })
+    }
+    const { scenarioId } = request.params
+    if (!listScenarios().includes(scenarioId)) {
+      return reply.status(404).send({ error: 'scenario_not_found', scenario_id: scenarioId })
+    }
+
+    const sessionService = getSessionService()
+    const previousGate = buildScenarioQualityGateForScenario(sessionService, scenarioId)
+    const reset = sessionService.recordQualityGateReset(scenarioId, parsed.data.reason, previousGate.status)
+    return reply.send({
+      scenario_id: scenarioId,
+      reset,
+      previous_quality_gate: previousGate,
+      quality_gate: buildScenarioQualityGateForScenario(sessionService, scenarioId),
+    })
+  })
+
   app.post('/api/p2/runs', async (request, reply) => {
     const parsed = StartAgenticRunBody.safeParse(request.body ?? {})
     if (!parsed.success) {
@@ -101,7 +131,7 @@ export async function phase2RunnerRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const scenario = loadScenario(parsed.data.scenario_id)
-    const gate = buildScenarioQualityGateForSessions(scenario.id, getSessionService().getAllSessions())
+    const gate = buildScenarioQualityGateForScenario(getSessionService(), scenario.id)
     if (gate.status === 'restricted') {
       return reply.status(409).send({
         error: 'scenario_restricted_by_quality_gate',

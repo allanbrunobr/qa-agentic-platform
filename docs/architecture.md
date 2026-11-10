@@ -112,6 +112,17 @@ Gates look at the last 5 final sessions of a scenario:
 | `review_required` | At least 1 violation, 3 or more drifts, or 2 consecutive failures | Runs are allowed. The dashboard flags the scenario for review. |
 | `open` | Otherwise | Normal operation. |
 
+A restricted scenario cannot produce new sessions, so its window would never change on its own. After fixing the cause, reset the gate:
+
+```bash
+curl -X POST http://127.0.0.1:3201/api/p2/scenarios/<scenarioId>/quality-gate/reset \
+  -H "x-agentic-token: $(cat .agentic-qa/data/runtime-api.token)" \
+  -H 'content-type: application/json' \
+  -d '{"reason": "what was fixed (10 to 500 characters)"}'
+```
+
+The gate then ignores sessions that started before the reset, and the scenario requalifies on new runs: three new violations restrict it again. Each reset is stored with its reason and the status it cleared (table `p2_quality_gate_resets`), and is never deleted.
+
 See [ADR 0002](decisions/0002-deterministic-workflow-contracts.md) for why the verdict is computed deterministically instead of by a model.
 
 ## Maturity model (L1–L5)

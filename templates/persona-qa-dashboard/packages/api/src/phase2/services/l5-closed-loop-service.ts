@@ -7,7 +7,7 @@ import { L5MaterializationService } from './l5-materialization-service.js'
 import { LearningControlService } from './learning-control-service.js'
 import { MetaOrchestrator, type MetaOrchestrationQueueItem } from './meta-orchestrator.js'
 import { IndependentAuditorService, type AuditorEvaluation, type AuditorFinding, type AuditorVerdict } from './independent-auditor-service.js'
-import { buildScenarioQualityGateForSessions } from './scenario-quality-gates.js'
+import { buildScenarioQualityGateForScenario } from './scenario-quality-gates.js'
 import { SelfHealingService } from './self-healing-service.js'
 import type {
   L5ClosedLoopRun,
@@ -564,7 +564,7 @@ export class L5ClosedLoopService {
     const sessions = this.sessionService.getAllSessions().filter((session) => session.scenarioId === scenarioId)
     const finalSessions = sessions.filter((session) => session.status === 'complete' || session.status === 'failed')
     const stepRecords = this.sessionService.listStepPerformance({ scenarioId, limit: 500 })
-    const qualityGate = buildScenarioQualityGateForSessions(scenarioId, this.sessionService.getAllSessions())
+    const qualityGate = buildScenarioQualityGateForScenario(this.sessionService, scenarioId)
 
     return {
       scenarioId,

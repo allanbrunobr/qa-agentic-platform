@@ -58,5 +58,30 @@ do `packages/core`):
 **Verificação:** `typecheck` 0; `npm test` 0 (o teste do core roda no `test:unit`; API 386, web 120);
 `verify:release` 0; `test:e2e` 0.
 
-**Ainda aberto, parte (b) do B-01:** não existe saída do estado `restricted` para três violações
-reais. Fica como próximo item.
+## B-01 (b) · O estado `restricted` não tinha saída — feito
+
+**O que mudou**
+
+- Rota `POST /api/p2/scenarios/:scenarioId/quality-gate/reset`, com `reason` obrigatório (10 a 500
+  caracteres) e cenário existente. Como toda rota do runtime, exige o token.
+- O reset fica gravado em `p2_quality_gate_resets`, com o motivo e o status que ele limpou, e nunca
+  é apagado. O gate passa a ignorar as sessões iniciadas antes do último reset; novas violações
+  voltam a restringir.
+- `buildScenarioQualityGateForScenario` é o único caminho para o gate. Runner (lista e início de
+  run), L5 e o mapa agregado passaram a usá-lo, então todos consideram o reset.
+- A mensagem do 409 diz como sair. `docs/architecture.md` explica o procedimento.
+- Não há botão no dashboard; o reset é feito pela API.
+
+**Testes:** `phase2/__tests__/quality-gate-reset.test.ts`, com 6 casos:
+
+- 3 violações restringem e o run recebe 409;
+- o reset reabre o gate e fica gravado;
+- novas violações restringem de novo;
+- reset sem motivo, com motivo curto ou com mais de 500 caracteres dá 400 e não grava nada;
+- cenário desconhecido dá 404;
+- unidade do filtro por data de reset.
+
+Antes desta correção a rota não existia. Na mutação (helper ignorando o reset), o teste de reabertura
+falha.
+
+**Verificação:** `typecheck` 0; `npm test` 0 (API 392, web 120); `verify:release` 0; `test:e2e` 0.

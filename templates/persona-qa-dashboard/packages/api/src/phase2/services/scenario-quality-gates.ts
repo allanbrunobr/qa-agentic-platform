@@ -14,6 +14,8 @@ export interface ScenarioQualityGate {
   recentDrift: number
   consecutiveViolated: number
   consecutiveFailures: number
+  /** Last operator reset of this gate, if any. Sessions started before it are not counted. */
+  resetAt?: string
 }
 
 const FINAL_SESSION_LIMIT = 5
@@ -34,10 +36,13 @@ function computeConsecutiveCount<T>(items: T[], predicate: (item: T) => boolean)
 export function buildScenarioQualityGateForSessions(
   scenarioId: string,
   sessions: Session[],
+  options: { resetAt?: string } = {},
 ): ScenarioQualityGate {
+  const resetTime = options.resetAt ? new Date(options.resetAt).getTime() : null
   const finalSessions = sessions
     .filter((session) => session.scenarioId === scenarioId)
     .filter((session) => session.status === 'complete' || session.status === 'failed')
+    .filter((session) => resetTime === null || new Date(session.startedAt).getTime() > resetTime)
     .sort(byRecent)
     .slice(0, FINAL_SESSION_LIMIT)
 
@@ -58,12 +63,14 @@ export function buildScenarioQualityGateForSessions(
     return {
       scenarioId,
       status: 'restricted',
-      reason: 'Scenario automatically restricted after repeated contract violations in recent runs.',
+      reason: 'Scenario automatically restricted after repeated contract violations in recent runs. '
+        + 'Fix the cause, then reset the gate with POST /api/p2/scenarios/:scenarioId/quality-gate/reset to requalify it.',
       recentFinalSessions: finalSessions.length,
       recentViolated,
       recentDrift,
       consecutiveViolated,
       consecutiveFailures,
+      ...(options.resetAt ? { resetAt: options.resetAt } : {}),
     }
   }
 
@@ -77,6 +84,7 @@ export function buildScenarioQualityGateForSessions(
       recentDrift,
       consecutiveViolated,
       consecutiveFailures,
+      ...(options.resetAt ? { resetAt: options.resetAt } : {}),
     }
   }
 
@@ -89,13 +97,24 @@ export function buildScenarioQualityGateForSessions(
     recentDrift,
     consecutiveViolated,
     consecutiveFailures,
+    ...(options.resetAt ? { resetAt: options.resetAt } : {}),
   }
+}
+
+/** The gate for one scenario, honouring its last operator reset. Every caller should use this. */
+export function buildScenarioQualityGateForScenario(
+  sessionService: SessionService,
+  scenarioId: string,
+  sessions: Session[] = sessionService.getAllSessions(),
+): ScenarioQualityGate {
+  const reset = sessionService.getLatestQualityGateReset(scenarioId)
+  return buildScenarioQualityGateForSessions(scenarioId, sessions, reset ? { resetAt: reset.createdAt } : {})
 }
 
 export function buildScenarioQualityGateMap(sessionService: SessionService): Record<string, ScenarioQualityGate> {
   const sessions = filterSessionsForAvailableScenarios(sessionService.getAllSessions())
   const scenarioIds = getAvailableScenarioIds()
   return Object.fromEntries(
-    scenarioIds.map((scenarioId) => [scenarioId, buildScenarioQualityGateForSessions(scenarioId, sessions)]),
+    scenarioIds.map((scenarioId) => [scenarioId, buildScenarioQualityGateForScenario(sessionService, scenarioId, sessions)]),
   )
 }

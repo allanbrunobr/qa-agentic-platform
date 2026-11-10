@@ -681,6 +681,33 @@ export class SessionService {
     }
   }
 
+  /**
+   * Records an operator reset of a scenario's quality gate (B-01). The gate then ignores sessions
+   * that started before the reset, so a restricted scenario can run again to requalify. The reason
+   * is kept for audit and never deleted.
+   */
+  recordQualityGateReset(scenarioId: string, reason: string, previousStatus: string): QualityGateReset {
+    const reset: QualityGateReset = {
+      id: randomUUID(),
+      scenarioId,
+      reason,
+      previousStatus,
+      createdAt: new Date().toISOString(),
+    }
+    this.sqlite
+      .prepare('INSERT INTO p2_quality_gate_resets (id, scenario_id, reason, previous_status, created_at) VALUES (?, ?, ?, ?, ?)')
+      .run(reset.id, reset.scenarioId, reset.reason, reset.previousStatus, reset.createdAt)
+    return reset
+  }
+
+  getLatestQualityGateReset(scenarioId: string): QualityGateReset | null {
+    const row = this.sqlite
+      .prepare('SELECT id, scenario_id, reason, previous_status, created_at FROM p2_quality_gate_resets WHERE scenario_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1')
+      .get(scenarioId) as { id: string; scenario_id: string; reason: string; previous_status: string; created_at: string } | undefined
+    if (!row) return null
+    return { id: row.id, scenarioId: row.scenario_id, reason: row.reason, previousStatus: row.previous_status, createdAt: row.created_at }
+  }
+
   getAllSessions(): Session[] {
     const rows = this.sqlite
       .prepare(`SELECT session_id FROM p2_sessions ORDER BY rowid ASC`)
@@ -2658,6 +2685,15 @@ export class SessionService {
         PRIMARY KEY(session_id, tool_call_id)
       );
 
+      CREATE TABLE IF NOT EXISTS p2_quality_gate_resets (
+        id TEXT PRIMARY KEY,
+        scenario_id TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        previous_status TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_p2_quality_gate_resets_scenario ON p2_quality_gate_resets(scenario_id, created_at);
       CREATE INDEX IF NOT EXISTS idx_p2_sessions_scenario ON p2_sessions(scenario_id);
       CREATE INDEX IF NOT EXISTS idx_p2_events_session_sequence ON p2_session_events(session_id, sequence);
       CREATE INDEX IF NOT EXISTS idx_p2_findings_session_created ON p2_session_findings(session_id, created_at);
@@ -2678,6 +2714,14 @@ export class SessionService {
       CREATE INDEX IF NOT EXISTS idx_p2_tool_ledger_closures_session ON p2_tool_ledger_closures(session_id, closed_at);
     `)
   }
+}
+
+export interface QualityGateReset {
+  id: string
+  scenarioId: string
+  reason: string
+  previousStatus: string
+  createdAt: string
 }
 
 export function createSessionServiceStub(): SessionService {
