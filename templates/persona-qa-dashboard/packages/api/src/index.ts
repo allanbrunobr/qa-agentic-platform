@@ -3,6 +3,7 @@ import { setLastSync } from './routes/stats.js';
 import { syncDataDir } from './services/data-sync.js';
 import { buildApp } from './app.js';
 import { defaultRuntimeTokenPath, ensureRuntimeToken } from './security/runtime-token.js';
+import { getSessionService } from './phase2/routes/sessions.js';
 
 const PORT = parseInt(process.env['PORT'] ?? '3001', 10);
 const HOST = process.env['HOST'] ?? '127.0.0.1';
@@ -20,6 +21,13 @@ async function start(): Promise<void> {
     console.warn(`[startup] Data sync skipped: ${message}`);
   }
 
+  // Sessions left pending/running by a process that died or was killed can never finish: close them
+  // as failed so verdicts, metrics and the quality gate count them (B-07).
+  const interrupted = getSessionService().failInterruptedSessions('process_restarted');
+  if (interrupted.length > 0) {
+    console.warn(`[startup] Marked ${interrupted.length} interrupted session(s) as failed`);
+  }
+
   // Created on first start (or by the launcher before it), reused afterwards. Never logged.
   const tokenPath = defaultRuntimeTokenPath();
   const token = await ensureRuntimeToken(tokenPath);
@@ -28,6 +36,12 @@ async function start(): Promise<void> {
   // Graceful shutdown handlers
   const shutdown = async (signal: string): Promise<void> => {
     app.log.info(`Received ${signal}, shutting down gracefully...`);
+    // Runs in this process are abandoned by the shutdown: record them as failed, not running.
+    try {
+      getSessionService().failInterruptedSessions(`process_shutdown_${signal.toLowerCase()}`);
+    } catch (err) {
+      app.log.error(err);
+    }
     await app.close();
     closeDb();
     process.exit(0);

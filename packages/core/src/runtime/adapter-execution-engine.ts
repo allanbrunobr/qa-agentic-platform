@@ -25,7 +25,40 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+/** Hard ceiling on retries a hook may request, so a buggy hook cannot loop forever. */
+const MAX_RETRIES_CEILING = 10
+const DEFAULT_MAX_RETRIES = 1
+
+/**
+ * Runs an execution. If any hook throws, the session is closed as failed (with a run_failed event)
+ * before the error reaches the caller: it never stays "running" (B-07).
+ */
 export async function runAdapterExecutionEngine(input: AdapterExecutionEngineInput) {
+  try {
+    await runEngine(input)
+  } catch (error) {
+    const failedAt = new Date().toISOString()
+    const message = error instanceof Error ? error.message : String(error)
+    try {
+      const current = await input.sessionStore.getSession(input.sessionId)
+      if (current && current.status !== 'complete' && current.status !== 'failed') {
+        await input.sessionStore.updateSession(input.sessionId, { status: 'failed', completedAt: failedAt })
+        await input.sessionStore.appendEvent({
+          id: randomUUID(),
+          sessionId: input.sessionId,
+          type: 'run_failed',
+          timestamp: failedAt,
+          data: { executionId: input.execution.executionId, errorMessage: message, reason: 'execution_error' },
+        } satisfies SessionEvent)
+      }
+    } catch {
+      // The store itself failed: nothing more can be recorded; the original error still propagates.
+    }
+    throw error
+  }
+}
+
+async function runEngine(input: AdapterExecutionEngineInput) {
   const { execution, hooks, model, sessionId, sessionStore } = input
   const stepDelayMs = input.stepDelayMs ?? 100
   const scenario = model.scenarios.find((item) => item.id === execution.scenarioId)
@@ -90,9 +123,11 @@ export async function runAdapterExecutionEngine(input: AdapterExecutionEngineInp
     let attempt = 0
     let result
     let failureMessage: string | null = null
-    const maxRetries = 1
 
-    while (attempt <= maxRetries) {
+    // B-08: the loop used to stop at a hard-coded 1 retry while the give-up check below used the step's
+    // own maxRetries, so a step still failing fell out of the loop and was recorded as completed. The
+    // loop now ends only by success, cancellation, or the give-up check.
+    for (;;) {
       await sessionStore.appendEvent({
         id: randomUUID(),
         sessionId,
@@ -156,7 +191,7 @@ export async function runAdapterExecutionEngine(input: AdapterExecutionEngineInp
         return
       }
 
-      const allowedRetries = result.maxRetries ?? maxRetries
+      const allowedRetries = Math.min(result.maxRetries ?? DEFAULT_MAX_RETRIES, MAX_RETRIES_CEILING)
       if (!(result.retryable ?? false) || attempt >= allowedRetries) {
         const failedAt = new Date().toISOString()
         await sessionStore.updateSession(sessionId, { status: 'failed', completedAt: failedAt })

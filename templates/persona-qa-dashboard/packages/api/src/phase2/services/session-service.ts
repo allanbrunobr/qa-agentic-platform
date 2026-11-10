@@ -682,6 +682,27 @@ export class SessionService {
   }
 
   /**
+   * Closes every session still pending or running as failed, with an interruption_recorded event
+   * (B-07). Called when the API starts (sessions left by a process that died or was killed) and on
+   * graceful shutdown (sessions this process is abandoning). Without it they stayed "running"
+   * forever, their verdict stayed contract_evaluating, and the quality gate never counted them.
+   * Returns the ids it closed.
+   */
+  failInterruptedSessions(reason: string): string[] {
+    const rows = this.sqlite
+      .prepare("SELECT session_id FROM p2_sessions WHERE status IN ('pending', 'running') ORDER BY created_at")
+      .all() as Array<{ session_id: string }>
+    for (const { session_id: sessionId } of rows) {
+      this.addEvent(sessionId, 'interruption_recorded', {
+        reason,
+        message: `Session interrupted (${reason}) before it finished; it is recorded as failed.`,
+      })
+      this.updateStatus(sessionId, 'failed')
+    }
+    return rows.map((row) => row.session_id)
+  }
+
+  /**
    * Records an operator reset of a scenario's quality gate (B-01). The gate then ignores sessions
    * that started before the reset, so a restricted scenario can run again to requalify. The reason
    * is kept for audit and never deleted.

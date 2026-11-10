@@ -335,3 +335,38 @@ checagens:
 
 **Verificação:** `typecheck` 0; `npm test` 0 (as 11 checagens novas no `test:unit`; API 445, web 120);
 `verify:release` 0, incluindo os verificadores do scanner e da matriz de domínios; `test:e2e` 0.
+
+## B-07 e B-08 · Sessões presas em `running` e retry que terminava `complete` — feito
+
+**O que mudou**
+
+- **B-08** (`packages/core`, `adapter-execution-engine.ts`): o laço de retry era limitado por um 1
+  fixo, enquanto a decisão de desistir usava o `maxRetries` do passo. Um passo que continuava
+  falhando saía do laço e era gravado como concluído; a sessão terminava `complete`. Agora o laço
+  só termina por sucesso, cancelamento ou desistência, respeita o `maxRetries` pedido (teto de
+  segurança de 10) e mantém 1 retry como padrão.
+- **B-07, core:** se qualquer hook lança, a sessão é fechada como `failed`, com `run_failed`, antes
+  de o erro chegar ao chamador. Antes ficava `running`.
+- **B-07, runtime:**
+  - `SessionService.failInterruptedSessions` fecha como `failed`, com evento
+    `interruption_recorded`, toda sessão `pending` ou `running`.
+  - A API chama esse método no arranque (sessões deixadas por um processo que morreu) e no
+    desligamento por SIGTERM/SIGINT (sessões que o processo abandona).
+  - O efeito é que o gate e as métricas passam a contar essas execuções como falha; antes elas
+    sumiam do gate, que só conta sessões finais.
+
+**Testes**
+
+- `packages/core/src/runtime/adapter-execution-engine.test.ts` (novo, no `test:unit`), com 9
+  checagens. No código antigo, 6 falharam. Destaque: um passo que falhou duas vezes e só passaria
+  na terceira tentativa era gravado `complete` depois da segunda falha.
+- `phase2/__tests__/session-recovery.test.ts`, com 4 casos. Um deles sobe o `src/index.ts` real
+  como processo filho sobre um banco temporário: a sessão deixada `running` é fechada no arranque,
+  e outra criada com o servidor no ar é fechada no SIGTERM. Na mutação (chamadas removidas do
+  `index.ts`), esse teste falha.
+- A primeira versão desse teste checava a ligação procurando texto no `index.ts`, o tipo de
+  instrumento que o T-02 critica. Foi trocada pelo teste com o processo real. No caminho apareceu
+  um detalhe de ambiente: o processo filho herdava `VITEST` e usava banco em memória.
+
+**Verificação:** `typecheck` 0; `npm test` 0 (as 9 checagens do motor no `test:unit`; API 449, web 120);
+`verify:release` 0; `test:e2e` 0.
