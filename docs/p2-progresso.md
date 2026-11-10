@@ -1640,6 +1640,14 @@ escolha de nomes e aliases pelo Allan e colidiria com as branches abertas; não 
 |---|---|---|
 | #1 `docs/testing.md` usava como exemplo de teste de rota o `runs.test.ts` apagado | O exemplo usa `stats.test.ts` | — (documento) |
 | #2 Esta seção prometia a verificação do HEAD "abaixo", e não havia | As frases apontam para a linha de verificação do `0d64b8d`, logo acima. A verificação do HEAD final é a do `ci-ok-remoto.sh` no M1, registrada no corpo do PR | — (documento) |
-| #3 A varredura do `upgrade-local` apagava qualquer arquivo que o template não tem em `packages/api/src` e `packages/web`, inclusive um banco que o upgrader aceita por `DATABASE_URL` (`src/persona-qa.db`, resolvido a partir de `packages/api`): o banco sumia e a migração o recriava vazio | A varredura só apaga arquivos de código-fonte (`.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.css`, `.html`, `.json`, `.md`, `.svg` e afins). Banco, WAL e qualquer outro dado ficam | `upgrade-local.test.ts`, rodado isolado no M5 com `M5_LEVE=1`: banco em `packages/api/src` com `DATABASE_URL=src/persona-qa.db` mantém a tabela marcadora; `export.csv` e `local.sqlite` ficam; nenhum banco em `removedStaleFiles`. Antes: 4 falhas. Mutação do filtro: na fila do M1 |
+| #3 A varredura do `upgrade-local` apagava qualquer arquivo que o template não tem em `packages/api/src` e `packages/web`, inclusive um banco que o upgrader aceita por `DATABASE_URL` (`src/persona-qa.db`, resolvido a partir de `packages/api`): o banco sumia e a migração o recriava vazio | A varredura só apaga código de script e estilo (`.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.jsx`, `.mjs`, `.cjs`, `.css`; ver a revisão de `c477db1` abaixo). Banco, WAL e os demais arquivos ficam | `upgrade-local.test.ts`, rodado isolado no M5 com `M5_LEVE=1`: banco em `packages/api/src` com `DATABASE_URL=src/persona-qa.db` mantém a tabela marcadora; `export.csv` e `local.sqlite` ficam; nenhum banco em `removedStaleFiles`. Antes: 4 falhas. Mutação do filtro: na fila do M1 |
 | #4 O commit `7d311dd` justifica manter `/api/sync` por ter consumidores, e não tem nenhum | O registro de decisão acima diz que `/api/sync` não tem chamador; o corpo do PR também. A mensagem do commit já publicado fica como está | — (documento) |
+
+### Revisão pré-PR de `c477db1`: 1 vivo, 3 refutados — corrigido
+
+| Achado | Correção | Teste (falhou antes) |
+|---|---|---|
+| #1 (baixo) A varredura ainda apagava `.json`, `.md`, `.html` e `.svg` não versionados sob `packages/api/src` e `packages/web`, que podem ser dados (um arquivo apontado por `PERSONA_QA_PERSONAS_FILE`, por exemplo), enquanto o docstring e este registro diziam que os demais dados ficam | A varredura só apaga código de script e estilo. Tudo o que o A-04 removeu é `.ts`/`.tsx`, então nada do objetivo se perde | `upgrade-local.test.ts`, isolado com `M5_LEVE=1`: `personas.custom.json` e `notes.md` sob os diretórios varridos ficam. Antes: 2 falhas |
+
+Um dos 8 agentes da rodada voltou vazio; as quatro lentes responderam (uma sem achados) e os três achados receberam veredito.
 

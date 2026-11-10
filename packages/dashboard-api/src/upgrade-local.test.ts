@@ -203,7 +203,14 @@ try {
   marker.exec("CREATE TABLE marker (v TEXT); INSERT INTO marker VALUES ('alive')")
   marker.close()
   // Not a -wal file: SQLite itself discards an invalid WAL beside the database it opens.
-  const keptBeside = [inDbStale('packages', 'api', 'src', 'export.csv'), inDbStale('packages', 'web', 'local.sqlite')]
+  // Pre-PR review of c477db1: data in JSON or Markdown (a personas file a PERSONA_QA_* variable points
+  // at, say) is not runtime code either, so it is kept too.
+  const keptBeside = [
+    inDbStale('packages', 'api', 'src', 'export.csv'),
+    inDbStale('packages', 'web', 'local.sqlite'),
+    inDbStale('packages', 'api', 'src', 'personas.custom.json'),
+    inDbStale('packages', 'web', 'notes.md'),
+  ]
   for (const file of keptBeside) await writeFile(file, 'x')
   const previousUrl = process.env.DATABASE_URL
   process.env.DATABASE_URL = 'src/persona-qa.db'

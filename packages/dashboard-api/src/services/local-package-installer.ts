@@ -101,8 +101,12 @@ async function copyTemplateEntry(fromRoot: string, toRoot: string, relativePath:
   })
 }
 
-/** The kinds of file the runtime code directories ship: the only ones the stale-file sweep removes. */
-const RUNTIME_SOURCE_EXTENSIONS = new Set(['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs', '.css', '.html', '.json', '.md', '.svg'])
+/**
+ * Script and style code: the only files the stale-file sweep removes. JSON, Markdown, HTML, images and
+ * any other file under the runtime code directories may be data a user put there (a file a PERSONA_QA_*
+ * variable points at), so the sweep keeps them even when the template does not have them.
+ */
+const RUNTIME_SOURCE_EXTENSIONS = new Set(['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs', '.css'])
 
 function isRuntimeSourceFile(fileName: string): boolean {
   return RUNTIME_SOURCE_EXTENSIONS.has(path.extname(fileName).toLowerCase())
@@ -112,9 +116,9 @@ function isRuntimeSourceFile(fileName: string): boolean {
  * Removes, under one of the runtime code directories, the files the template no longer has. The copy
  * only adds and overwrites, so without this an upgraded install kept code a newer template had removed
  * (the legacy run routes and their runner after A-04). Paths the copy leaves out (dependencies, builds,
- * data, artifacts: shouldExclude) are never visited, and only runtime source files are removed
- * (isRuntimeSourceFile): a database a DATABASE_URL points at under these directories, its WAL file or any
- * other data is kept. Symlinks are refused before any write (assertNoSymlinksUnder), and are not followed
+ * data, artifacts: shouldExclude) are never visited, and only script and style code is removed
+ * (isRuntimeSourceFile): a database a DATABASE_URL points at under these directories, its WAL file, and
+ * any JSON, Markdown or other file are kept. Symlinks are refused before any write (assertNoSymlinksUnder), and are not followed
  * here. Returns the removed files, relative to the install.
  */
 async function removeStaleRuntimeFiles(templateRoot: string, installedPath: string, relativeDir: string): Promise<string[]> {
