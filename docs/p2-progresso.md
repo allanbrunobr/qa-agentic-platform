@@ -1606,13 +1606,26 @@ pnpm (resolvendo pelo `package.json`, não pelo `package-lock.json`). Os três a
 **Fica para o Allan (decisão de produto), intocado:** `/api/stats`, `/api/insights`, `/api/sync`, a sync no
 start da API, as tabelas legadas e o `drizzle-orm`. Fato para decidir: no launcher (cwd `.agentic-qa`), o
 diretório de dados da sync é `<repo>/../../integration-test/persona-tests` (fora do repositório-alvo),
-então as tabelas legadas ficam vazias e a página **Insights**, que só lê essas tabelas, fica sempre vazia;
-as contagens legadas de `/api/stats` ficam em zero. As opções são reescrever Insights/estatísticas sobre as
-sessões agênticas ou remover a página e o resto do legado.
+então as tabelas legadas ficam vazias e as contagens legadas de `/api/stats` ficam em zero. A página
+**Insights** não fica vazia, e não deve ser removida: com as tabelas vazias, `/api/insights` devolve três
+vereditos verdes que não refletem nada ("No UI issues detected", "Test suite is healthy", "No API issues
+detected"), e a mesma página é a do painel de governança L5 (propostas, healing, decisões e rascunhos de
+cenário, com aprovar, aplicar, rejeitar e promover), que lê as rotas agênticas `/api/p2/*`. A decisão é
+sobre os vereditos e as contagens: reescrevê-los sobre as sessões agênticas ou removê-los. (Corrigido na
+revisão pré-PR de `7d311dd`, achados #1 e #2: a versão anterior dizia que a página só lia as tabelas legadas
+e ficava sempre vazia.)
 
 **Não feito:** `AgenticSessionDetail.tsx` (com `StepHistoryPanel`) também não é alcançável, mas é do modelo
 agêntico e não está na lista do A-04; ficou. M-03 (renomear `persona-qa`, `/api/p2`, `PERSONA_QA_*`) pede
 escolha de nomes e aliases pelo Allan e colidiria com as branches abertas; não comecei. A-05 (arquivos-deus)
 é refatoração incremental sem mudança funcional em vista; não comecei.
 
-**Verificação (A-04, branch `a04-legado`):** `audit:deps` 0; `lint` 0; `typecheck` 0; `build` 0; `npm test` 0 (API 515 = 503 + 18 do teste novo − 6 do S-08; rotas `node:test` 25 = 27 − 2 de `runs.test.ts`; web 25 = 125 − 100 dos testes dos componentes removidos); `verify:release` 0; `test:e2e` 0.
+**Verificação (A-04, antes do rebase, sobre 16dc856):** `audit:deps` 0; `lint` 0; `typecheck` 0; `build` 0; `npm test` 0 (API 515 = 503 + 18 do teste novo − 6 do S-08; rotas `node:test` 25 = 27 − 2 de `runs.test.ts`; web 25 = 125 − 100 dos testes dos componentes removidos); `verify:release` 0; `test:e2e` 0. A verificação do HEAD rebaseado está na seção da revisão pré-PR abaixo.
+
+### Revisão pré-PR de `7d311dd` (HEAD de `a04-legado`): 4 vivos, 3 refutados — corrigidos
+
+| Achado | Correção | Teste (falhou antes) |
+|---|---|---|
+| #1, #2 O registro acima dizia que a página Insights só lia as tabelas legadas e ficava sempre vazia, e oferecia removê-la. Com as tabelas vazias ela mostra três vereditos verdes, e é a tela do painel de governança L5 | Texto corrigido acima: a decisão é sobre os vereditos e as contagens, não sobre a página | — (documento) |
+| #3 O `upgrade-local` (e uma reinstalação) só copiava por cima: os arquivos que o template removeu (rotas legadas, runner, páginas) ficavam na instalação atualizada, inclusive o spawn de `pnpm`, e no git do host que versiona `.agentic-qa/` | Depois de copiar cada diretório de código do runtime (`packages/api/src`, `packages/web`), o instalador apaga os arquivos que o template não tem mais, e os diretórios que ficam vazios. O que a cópia deixa de fora (`node_modules`, `dist`, artefatos, `data`, `adapter`) não é visitado. O resultado do `install-local` e do `upgrade-local` lista `removedStaleFiles` | `upgrade-local.test.ts`: instalação com `routes/runs.ts`, `services/runner.ts`, `pages/Runs.tsx` e um diretório só legado → depois do upgrade, removidos e listados; `node_modules`, `dist`, screenshot, cenário do `adapter` e `data/` ficam. Antes: 6 falhas. Mutação: sem o filtro de exclusão → apaga `node_modules`; sem remover diretório vazio → 1 falha; sem a remoção → 6 |
+| #4 A linha de verificação do A-04 era da árvore anterior ao rebase (API 515), não do HEAD que vira PR (522) | A linha acima diz de que árvore é; a verificação do novo HEAD está abaixo, com números medidos nele | — |

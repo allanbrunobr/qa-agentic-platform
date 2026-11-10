@@ -101,6 +101,40 @@ async function copyTemplateEntry(fromRoot: string, toRoot: string, relativePath:
   })
 }
 
+/**
+ * Removes, under one of the runtime code directories, the files the template no longer has. The copy
+ * only adds and overwrites, so without this an upgraded install kept code a newer template had removed
+ * (the legacy run routes and their runner after A-04). Paths the copy leaves out (dependencies, builds,
+ * data, artifacts: shouldExclude) are never visited. Symlinks are refused before any write
+ * (assertNoSymlinksUnder), and are not followed here. Returns the removed files, relative to the install.
+ */
+async function removeStaleRuntimeFiles(templateRoot: string, installedPath: string, relativeDir: string): Promise<string[]> {
+  const removed: string[] = []
+  const visit = async (relative: string): Promise<boolean> => {
+    // true when the directory is left empty and the template does not have it
+    const entries = await fs.readdir(path.join(installedPath, relative), { withFileTypes: true })
+    let remaining = entries.length
+    for (const entry of entries) {
+      const entryRelative = path.join(relative, entry.name)
+      if (shouldExclude(entryRelative) || entry.isSymbolicLink()) continue
+      const inTemplate = await fs.lstat(path.join(templateRoot, entryRelative)).then(() => true, () => false)
+      if (entry.isDirectory()) {
+        if (await visit(entryRelative) && !inTemplate) {
+          await fs.rmdir(path.join(installedPath, entryRelative))
+          remaining -= 1
+        }
+      } else if (entry.isFile() && !inTemplate) {
+        await fs.unlink(path.join(installedPath, entryRelative))
+        removed.push(entryRelative)
+        remaining -= 1
+      }
+    }
+    return remaining === 0
+  }
+  await visit(relativeDir)
+  return removed.sort()
+}
+
 async function writeInstalledDocs(installedPath: string) {
   const docsDir = path.join(installedPath, 'docs')
   await fs.mkdir(docsDir, { recursive: true })
@@ -657,8 +691,10 @@ export async function installLocalPackage(input: { repoPath: string }) {
     await copyTemplateEntry(templateRoot, installedPath, relativePath)
   }
 
+  const removedStaleFiles: string[] = []
   for (const relativePath of COPY_ROOT_DIRS) {
     await copyTemplateEntry(templateRoot, installedPath, relativePath)
+    removedStaleFiles.push(...await removeStaleRuntimeFiles(templateRoot, installedPath, relativePath))
   }
 
   for (const relativePath of COPY_EXTRA_FILES) {
@@ -819,6 +855,8 @@ export async function installLocalPackage(input: { repoPath: string }) {
     installedPath,
     copiedRootFiles: COPY_ROOT_FILES.map(String),
     copiedRootDirs: COPY_ROOT_DIRS.map(String),
+    // Runtime code the template no longer has, removed from the install (relative to it).
+    removedStaleFiles,
     copiedExtraFiles: COPY_EXTRA_FILES.map(String),
     createdDirs: EMPTY_DIRS.map(String),
     metadataPath,

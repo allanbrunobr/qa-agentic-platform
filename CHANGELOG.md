@@ -73,6 +73,8 @@ Changes from the review in `docs/analise-20261109.md`. Item ids (S-, B-, T-, A-,
   `/api/findings` (with the finding screenshot route), the `/ws/runs/:runId` log stream, and their
   runner. The dashboard pages and components that read them were not reachable and are gone too.
   `/api/stats`, `/api/insights`, `/api/sync` and the legacy tables stay for now.
+- `upgrade-local` (and a reinstall) removes runtime code files the template no longer has, so an
+  upgraded install does not keep the removed routes; the result lists them in `removedStaleFiles`.
 
 ## [0.1.0] - 2026-10-22
 
