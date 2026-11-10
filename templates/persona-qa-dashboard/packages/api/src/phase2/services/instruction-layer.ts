@@ -11,23 +11,37 @@ import type { ScenarioStep } from '../types/scenario-types.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
-const DASHBOARD_ROOT = path.resolve(__dirname, '../../..')
-const DEFAULT_INSTRUCTION_PATH = path.join(DASHBOARD_ROOT, 'AGENTIC.md')
+// phase2/services -> phase2 -> src (or dist) -> api -> packages -> runtime root, where AGENTIC.md lives
+// (the template root, or .agentic-qa once installed). It was resolved one level too shallow before,
+// which left the global layer silently empty in every run (B-05).
+const RUNTIME_ROOT = path.resolve(__dirname, '../../../../..')
+const DEFAULT_INSTRUCTION_PATH = path.join(RUNTIME_ROOT, 'AGENTIC.md')
 
-let cachedInstructionText: string | null | undefined
+let cachedInstructionText: string | undefined
 
+export function globalAgenticInstructionsPath(): string {
+  return process.env['AGENTIC_QA_INSTRUCTIONS_PATH'] || DEFAULT_INSTRUCTION_PATH
+}
+
+/**
+ * The runtime's global instruction layer (AGENTIC.md). A missing file is an installation error, not
+ * an empty layer: it throws, so a run never starts without the rules it is supposed to follow.
+ */
 export function getGlobalAgenticInstructions(): string | undefined {
-  if (cachedInstructionText !== undefined) {
-    return cachedInstructionText ?? undefined
+  if (cachedInstructionText !== undefined) return cachedInstructionText
+
+  const instructionPath = globalAgenticInstructionsPath()
+  if (!fs.existsSync(instructionPath)) {
+    throw new Error(`Global agent instructions not found: ${instructionPath} (expected the runtime AGENTIC.md)`)
   }
 
-  if (!fs.existsSync(DEFAULT_INSTRUCTION_PATH)) {
-    cachedInstructionText = null
-    return undefined
-  }
+  cachedInstructionText = fs.readFileSync(instructionPath, 'utf8').trim()
+  return cachedInstructionText
+}
 
-  cachedInstructionText = fs.readFileSync(DEFAULT_INSTRUCTION_PATH, 'utf8').trim()
-  return cachedInstructionText ?? undefined
+/** For tests and for a runtime that changes AGENTIC_QA_INSTRUCTIONS_PATH. */
+export function resetGlobalAgenticInstructionsCache(): void {
+  cachedInstructionText = undefined
 }
 
 export function createLayer(

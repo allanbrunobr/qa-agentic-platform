@@ -85,3 +85,25 @@ Antes desta correção a rota não existia. Na mutação (helper ignorando o res
 falha.
 
 **Verificação:** `typecheck` 0; `npm test` 0 (API 392, web 120); `verify:release` 0; `test:e2e` 0.
+
+## B-05 · As instruções globais do `AGENTIC.md` nunca eram carregadas — feito
+
+**O que mudou** (`phase2/services/instruction-layer.ts`):
+
+- O caminho sobe 5 níveis a partir de `phase2/services` até a raiz do runtime (o template, ou
+  `.agentic-qa` depois de instalado), onde fica o `AGENTIC.md`. Antes subia 3 e caía em
+  `packages/api/AGENTIC.md`, que não existe.
+- Um arquivo ausente agora lança erro em vez de devolver `undefined` em silêncio: um run não começa
+  sem as regras que deveria seguir.
+- `AGENTIC_QA_INSTRUCTIONS_PATH` permite outro arquivo.
+
+**Testes** (em `instruction-layer.test.ts`, 3 casos novos): a função real carrega o arquivo; o
+agent runtime envia o conteúdo ao provider como mensagem de sistema; um caminho configurado
+inexistente lança erro. Os testes antigos montavam a camada à mão e não pegavam o defeito. Na
+mutação (caminho antigo), os 2 primeiros falham.
+
+**Verificação:** `typecheck` 0; `npm test` 0 (API 395, web 120); `verify:release` 0; `test:e2e` 0,
+com o runtime instalado lendo o `AGENTIC.md` copiado para `.agentic-qa`.
+
+**Efeito esperado:** a partir daqui, as regras "execute só o passo atual" e "não declare sucesso
+cedo" chegam ao modelo, e o S-04 (saída de tool como dado, não instrução) pode se apoiar nelas.
