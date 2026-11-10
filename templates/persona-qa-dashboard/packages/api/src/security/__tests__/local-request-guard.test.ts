@@ -3,7 +3,8 @@ import { connect, type AddressInfo } from 'node:net'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { buildApp } from '../../app.js'
 import { closeDb, initDb } from '../../db/index.js'
-import { hostnameFromHostHeader, isAllowedHost } from '../local-request-guard.js'
+import { readFileSync } from 'node:fs'
+import { hostnameFromHostHeader, isAllowedHost, localWebOrigins } from '../local-request-guard.js'
 
 // These tests build the real application (the same buildApp the launcher starts) so that a route
 // registered without the guard, or a guard registered after CORS, fails here.
@@ -319,5 +320,25 @@ describe('hostnameFromHostHeader', () => {
   it.each([undefined, '', 'a b', 'user@127.0.0.1', '127.0.0.1:port', '[::1]x', '[::1'])('refuses malformed %s', (input) => {
     expect(hostnameFromHostHeader(input)).toBeNull()
     expect(isAllowedHost(input)).toBe(false)
+  })
+})
+
+// Eleventh pre-PR run, #1 (docs/p2-progresso.md): the guard allows the dev dashboard on DEV_WEB_PORT,
+// but `dev:web` let Vite move to another port when that one was busy, and every POST and WebSocket
+// from the moved dashboard got 403. The dev script must hold its port, as the launcher does.
+describe('dev:web keeps the port the guard allows', () => {
+  const webPackage = JSON.parse(readFileSync(new URL('../../../../web/package.json', import.meta.url), 'utf8')) as { scripts: Record<string, string> }
+  const dev = webPackage.scripts['dev'] ?? ''
+
+  it('fails instead of moving to another port', () => {
+    expect(dev.split(/\s+/)).toContain('--strictPort')
+  })
+
+  it('serves on a port whose origins the API accepts', () => {
+    const port = /--port\s+(\d+)/.exec(dev)?.[1]
+    expect(port).toBeDefined()
+    const origins = localWebOrigins({})
+    expect(origins.has(`http://127.0.0.1:${port}`)).toBe(true)
+    expect(origins.has(`http://localhost:${port}`)).toBe(true)
   })
 })

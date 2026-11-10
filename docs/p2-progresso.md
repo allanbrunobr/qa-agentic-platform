@@ -1501,3 +1501,14 @@ conferido com `cmp`. Primeira versão do teste do #1 lia a mensagem errada (a do
 corrigida para procurar a mensagem com o envelope.
 
 **Verificação (rodada 10):** `audit:deps` 0; `lint` 0; `typecheck` 0 (a primeira execução acusou `stopReason` sem tipo literal no teste novo; corrigido e refeito); `build` 0; `npm test` 0 (API 501, rotas `node:test` 27, web 125); `verify:release` 0; `test:e2e` 0.
+
+## `pre-pr-contradicoes` (rodada 11, `fdf94c6`): 1 vivo — corrigido
+
+Uma das lentes devolveu `achados: []` (o relatório conta como "resultado vazio"); conferido no
+journal que é uma lente sem achados, não uma falha.
+
+| Achado | Correção | Teste (falhou antes) |
+|---|---|---|
+| #1 O guard de origem aceita o dashboard de desenvolvimento só na porta 5173, mas o `dev:web` do template não fixava a porta: com a 5173 ocupada o Vite sobe em outra, e todo POST e WebSocket do painel leva `403 origin_not_allowed` | `packages/web/package.json`: `dev` com `--strictPort`, como o launcher já faz; o README do template diz que o `dev:web` para se a porta estiver ocupada | `local-request-guard.test.ts`: o script `dev` tem `--strictPort` (antes: falha) e a porta dele está em `localWebOrigins({})`. Mutação: porta 5174 → falha |
+
+**Verificação (rodada 11):** `audit:deps` 0; `lint` 0; `typecheck` 0; `build` 0; `npm test` 0 (API 503, rotas `node:test` 27, web 125); `verify:release` 0; `test:e2e` 0.
