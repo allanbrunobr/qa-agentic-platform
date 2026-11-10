@@ -250,3 +250,46 @@ capability `registerCustomer` sem registrar a tool e dependiam do escopo que fal
 fixture passou a registrar a tool do passo, e as asserções sobre o prompt continuam as mesmas.
 
 **Verificação:** `typecheck` 0; `npm test` 0 (API 429, web 120); `verify:release` 0; `test:e2e` 0.
+
+## S-07 e S-08 · Browser navegando para qualquer host e screenshot lendo qualquer arquivo — feito
+
+**O que mudou**
+
+- **S-07, rotas** (`generated-adapter-tools.ts`):
+  - O `routeHint` do adapter gerado só leva o browser à origem do alvo: aceita um caminho relativo
+    (confinado com o mesmo `confineEndpointUrl` das chamadas de endpoint) ou uma URL absoluta
+    http(s) da mesma origem.
+  - URL de outro host, `//host` ou barra invertida recebem `route_outside_target`, sem navegar.
+  - O registro de tools passou a preservar o `code` de um erro lançado de propósito (sem marcar
+    como retryable) e a redigir a mensagem.
+- **S-07, execution context** (`execution-context.ts`, `runner.ts`):
+  - `targetBaseUrl` e as URLs de preview só aceitam http(s).
+  - Um `execution_context` inválido dá `400 invalid_execution_context`. Antes era descartado em
+    silêncio, e o run caía na URL do ambiente.
+- **S-08** (`services/screenshot-path.ts`, `routes/findings.ts`): o `screenshot_path` de um
+  finding sincronizado só é servido se for imagem e se o caminho real, com symlinks resolvidos,
+  ficar dentro do diretório do projeto.
+- Apoio a teste: o catálogo de capabilities aceita `PERSONA_QA_CAPABILITIES_FILE`, como os outros
+  arquivos gerados.
+
+**Teste:** `phase2/__tests__/browser-target-confinement.test.ts`, com 16 casos:
+
+- 3 rotas recusadas sem navegar;
+- rota relativa e URL absoluta da mesma origem aceitas;
+- 4 esquemas recusados no contexto;
+- http(s) aceitos;
+- `POST /api/p2/runs` com `file://` dá 400;
+- screenshot dentro do projeto servido;
+- 5 recusas: absoluto fora, relativo que sobe, symlink para fora, não-imagem, ausente.
+
+O módulo do S-08 não existia antes. Por mutação, em cada uma das quatro proteções:
+
+| Proteção desligada | Testes que falham |
+|---|---:|
+| rota | 3 |
+| esquema | 5 |
+| validação no runner | 1 |
+| confinamento do screenshot | 3 |
+
+**Verificação:** `typecheck` 0; `npm test` 0 (API 445, web 120); `verify:release` 0; `test:e2e` 0. O e2e
+inclui o passo do B-02, que usa `targetBaseUrl` http real e continua passando.

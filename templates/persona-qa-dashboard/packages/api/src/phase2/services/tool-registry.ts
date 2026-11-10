@@ -50,8 +50,13 @@ export class ToolRegistry {
         ? { ok: true, output: sanitizeOutput(result.output) }
         : { ok: false, error: sanitizeOutput(result.error) as typeof result.error }
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      return { ok: false, error: { code: 'tool_execution_error', message, retryable: true } }
+      const message = sanitizeString(err instanceof Error ? err.message : String(err))
+      // A handler may throw a coded, deliberate refusal (for example route_outside_target): keep its
+      // code and do not mark it retryable, since retrying cannot change the answer.
+      const coded = err && typeof err === 'object' && typeof (err as { code?: unknown }).code === 'string'
+        ? (err as { code: string }).code
+        : null
+      return { ok: false, error: { code: coded ?? 'tool_execution_error', message, retryable: coded === null } }
     }
   }
 

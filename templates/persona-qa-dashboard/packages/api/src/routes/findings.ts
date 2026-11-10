@@ -4,6 +4,7 @@ import { z } from 'zod';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { getDb, schema } from '../db/index.js';
+import { resolveFindingScreenshotPath } from '../services/screenshot-path.js';
 
 const FindingsQuerySchema = z.object({
   severity: z
@@ -121,18 +122,13 @@ export async function findingsRoutes(app: FastifyInstance): Promise<void> {
           .send({ error: 'No screenshot available for this finding' });
       }
 
-      // Resolve screenshot path relative to the project root test-results dir
+      // Only image files whose real path is inside the project are served (S-08).
       const projectDir = getProjectDir();
-      const screenshotAbsPath = path.isAbsolute(finding.screenshot_path)
-        ? finding.screenshot_path
-        : path.resolve(projectDir, finding.screenshot_path);
-
-      try {
-        await fs.access(screenshotAbsPath);
-      } catch {
+      const screenshotAbsPath = await resolveFindingScreenshotPath(projectDir, finding.screenshot_path);
+      if (!screenshotAbsPath) {
         return reply
           .status(404)
-          .send({ error: 'Screenshot file not found on disk' });
+          .send({ error: 'Screenshot file not found inside the project' });
       }
 
       const buffer = await fs.readFile(screenshotAbsPath);

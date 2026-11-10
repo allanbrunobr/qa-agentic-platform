@@ -619,7 +619,10 @@ const captureScreenshotHandler = async (
 }
 
 function readGeneratedCapabilities(): Array<{ id: string; routeHint?: string; purpose?: string; sourceHint?: string }> {
-  const parsed = readGeneratedAdapterJson<CapabilityCatalog | GeneratedCapability[]>('capabilities/capabilities.generated.json')
+  const parsed = readGeneratedAdapterJson<CapabilityCatalog | GeneratedCapability[]>(
+    'capabilities/capabilities.generated.json',
+    'PERSONA_QA_CAPABILITIES_FILE',
+  )
   const rawCapabilities = Array.isArray(parsed) ? parsed : parsed?.capabilities
   if (!Array.isArray(rawCapabilities)) return []
 
@@ -676,16 +679,41 @@ async function ensurePageReady(page: PageLike, routeHint: string | undefined, co
  * default; otherwise the browser would test one target while the verdict names another (B-02).
  */
 function normalizeRouteHint(value: string | undefined, runBaseUrl?: string): string {
-  const rawRoute = !value || value === '*' ? '/' : value
-  if (/^https?:\/\//i.test(rawRoute)) return rawRoute
-  const route = rawRoute.startsWith('/') ? rawRoute : `/${rawRoute}`
+  const rawRoute = !value || value === '*' ? '/' : value.trim()
   const baseUrl = runBaseUrl || process.env['PLAYWRIGHT_BASE_URL']
-  if (!baseUrl) return route
+  const hasScheme = /^[a-z][a-z0-9+.-]*:/i.test(rawRoute)
 
-  try {
-    return new URL(route, baseUrl).toString()
-  } catch {
+  // S-07: route hints come from the generated adapter (an untrusted repository). The browser may only
+  // go to the run target's origin: a relative path, or an absolute http(s) URL on that same origin.
+  if (hasScheme) {
+    if (!baseUrl) throw new RouteOutsideTargetError(rawRoute)
+    let url: URL
+    let base: URL
+    try {
+      url = new URL(rawRoute)
+      base = new URL(baseUrl)
+    } catch {
+      throw new RouteOutsideTargetError(rawRoute)
+    }
+    if (url.origin !== base.origin || url.username || url.password) throw new RouteOutsideTargetError(rawRoute)
+    return url.toString()
+  }
+
+  const route = rawRoute.startsWith('/') ? rawRoute : `/${rawRoute}`
+  if (!baseUrl) {
+    if (route.startsWith('//') || route.includes('\\')) throw new RouteOutsideTargetError(rawRoute)
     return route
+  }
+  const confined = confineEndpointUrl(route, baseUrl)
+  if (!confined) throw new RouteOutsideTargetError(rawRoute)
+  return confined
+}
+
+class RouteOutsideTargetError extends Error {
+  readonly code = 'route_outside_target'
+  constructor(route: string) {
+    super(`Route "${route}" is outside the run target; only paths on the target origin are allowed.`)
+    this.name = 'RouteOutsideTargetError'
   }
 }
 

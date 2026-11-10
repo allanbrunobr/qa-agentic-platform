@@ -7,6 +7,7 @@ import { buildScenarioQualityGateForScenario } from '../services/scenario-qualit
 import { createPhase2Runtime } from '../services/runtime-bootstrap.js'
 import {
   parseExecutionContext,
+  validateExecutionContext,
   resolveExecutionApiBaseUrl,
   resolveExecutionBaseUrl,
   summarizeExecutionContext,
@@ -111,6 +112,16 @@ export async function phase2RunnerRoutes(app: FastifyInstance): Promise<void> {
       return reply.status(400).send({
         error: 'invalid_body',
         details: parsed.error.flatten(),
+      })
+    }
+
+    // An invalid execution_context (for example a file:// target) is an error, not "no context":
+    // ignoring it would silently test the environment's target instead (S-07).
+    const contextValidation = validateExecutionContext(parsed.data.execution_context)
+    if (!contextValidation.ok) {
+      return reply.status(400).send({
+        error: 'invalid_execution_context',
+        details: contextValidation.error,
       })
     }
 
