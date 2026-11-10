@@ -210,6 +210,16 @@ const verifyApiResponseHandler: ToolHandler = async (_input, context): Promise<T
 const runCliHelpHandler: ToolHandler = async (input: unknown, context): Promise<ToolResult> => {
   const targetRepoPath = targetRepoPathFor(context)
   const args = normalizeArgs(input)
+  if (!isAllowedCliArgs(args)) {
+    return {
+      ok: false,
+      error: {
+        code: 'cli_args_not_allowed',
+        message: 'runCliHelp accepts only help or version flags (--help, -h, --version, -v) and plain subcommand names, at most 4.',
+        retryable: false,
+      },
+    }
+  }
   const command = await resolveCliCommand(targetRepoPath, args)
   if (!command) {
     return ok({
@@ -974,11 +984,34 @@ function normalizeArgs(input: unknown): string[] {
   return args.filter((arg): arg is string => typeof arg === 'string')
 }
 
+// The model picks these args and the target's own code runs with them (S-03). Only help and version
+// flags plus plain subcommand names pass: no -e/--eval, no paths, no shell syntax, at most 4 args.
+const HELP_FLAGS = new Set(['--help', '-h', 'help', '--version', '-v', '-V', 'version'])
+const SUBCOMMAND = /^[a-z][a-z0-9:_-]{0,40}$/i
+
+export function isAllowedCliArgs(args: string[]): boolean {
+  if (args.length === 0 || args.length > 4) return false
+  return args.every((arg) => HELP_FLAGS.has(arg) || SUBCOMMAND.test(arg))
+}
+
+// Environment for the target's CLI: what a process needs to start, never the runtime's secrets
+// (provider keys, test credentials). AGENTIC_QA_CLI_ENV_ALLOWLIST adds names explicitly.
+const CLI_ENV_BASE = ['PATH', 'HOME', 'USER', 'LANG', 'LC_ALL', 'LC_CTYPE', 'TMPDIR', 'TEMP', 'TMP', 'TERM', 'NODE_ENV', 'SystemRoot', 'ComSpec', 'PATHEXT']
+
+export function cliEnvironment(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const extra = (env['AGENTIC_QA_CLI_ENV_ALLOWLIST'] ?? '').split(',').map((name) => name.trim()).filter(Boolean)
+  const result: NodeJS.ProcessEnv = { NO_COLOR: '1' }
+  for (const name of [...CLI_ENV_BASE, ...extra]) {
+    if (env[name] !== undefined) result[name] = env[name]
+  }
+  return result
+}
+
 function runProcess(command: string, args: string[], cwd: string, timeoutMs: number): Promise<ProcessResult> {
   return new Promise((resolve) => {
     const child = spawn(command, args, {
       cwd,
-      env: process.env,
+      env: cliEnvironment(),
       stdio: ['ignore', 'pipe', 'pipe'],
     })
     let stdout = ''

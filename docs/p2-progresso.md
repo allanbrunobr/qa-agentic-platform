@@ -169,3 +169,40 @@ do passo) e reprovando o quebrado.
 Antes, a tool não existia. Na mutação (tratamento desligado), 3 testes falham.
 
 **Verificação:** `typecheck` 0; `npm test` 0 (API 410, web 120); `verify:release` 0; `test:e2e` 0.
+
+## S-03 e S-06 · Segredos na CLI do alvo e redaction só por nome — feito
+
+**O que mudou**
+
+- **S-03** (`generated-adapter-tools.ts`):
+  - O processo da CLI do alvo recebe um ambiente mínimo (`PATH`, `HOME`, locale, diretórios
+    temporários, mais o que estiver em `AGENTIC_QA_CLI_ENV_ALLOWLIST`). Antes recebia o
+    `process.env` inteiro, com as chaves de provider e as credenciais de teste.
+  - Os argumentos escolhidos pelo modelo só passam se forem flags de ajuda ou versão ou nomes simples
+    de subcomando, no máximo 4. `-e`, `--eval`, caminhos e sintaxe de shell recebem
+    `cli_args_not_allowed`.
+- **S-06** (`tool-registry.ts`):
+  - A redaction reconhece segredos pelo valor: `sk-ant-…`, `sk-…`, tokens do GitHub, chaves AWS,
+    JWT, chaves privadas, e os valores literais de variáveis de ambiente com nome de segredo
+    (`KEY`, `TOKEN`, `SECRET`, `PASSWORD`…).
+  - Agora vale também para a mensagem de erro das tools.
+  - O input da `tool_call` gravado nos eventos da sessão e enviado aos hooks passa por
+    `redactSecrets`; antes era gravado cru.
+- `README.md` e `SECURITY.md` descrevem o comportamento.
+
+**Fora do escopo:** o `riskLevel` de `runCliHelp` continua `read`. Hoje nenhum perfil define
+`riskPolicy`, então mudar a classificação não altera o comportamento; isso entra com o S-05.
+
+**Teste:** `phase2/__tests__/secrets-handling.test.ts`, com 13 casos:
+
+- a CLI falsa do alvo informa que não recebeu `ANTHROPIC_API_KEY` nem `TEST_PASSWORD`;
+- argumentos de ajuda e versão passam, e 5 formas perigosas são recusadas;
+- redaction por valor dos 7 formatos;
+- texto comum fica intacto;
+- segredo no output de uma tool é redigido;
+- segredo no input da `tool_call` não aparece nos eventos.
+
+Antes da correção, 10 dos 13 falharam. Na mutação das três partes, 9 falham.
+
+**Verificação:** `typecheck` 0; `npm test` 0 (API 423, web 120); `verify:release` 0, incluindo o smoke
+determinístico de repositórios CLI, que roda `runCliHelp` com o ambiente mínimo; `test:e2e` 0.

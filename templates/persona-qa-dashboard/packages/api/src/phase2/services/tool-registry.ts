@@ -46,7 +46,9 @@ export class ToolRegistry {
     // Execute
     try {
       const result = await tool.handler(input, context)
-      return result.ok ? { ok: true, output: sanitizeOutput(result.output) } : result
+      return result.ok
+        ? { ok: true, output: sanitizeOutput(result.output) }
+        : { ok: false, error: sanitizeOutput(result.error) as typeof result.error }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       return { ok: false, error: { code: 'tool_execution_error', message, retryable: true } }
@@ -124,7 +126,39 @@ function isSensitiveKey(key: string): boolean {
   return SENSITIVE_PATTERNS.some((pattern) => pattern.test(key))
 }
 
+// Secret shapes recognized by value, not only by key name (S-06): text from a CLI, an API body or a
+// page can carry a key under any label.
+const SECRET_VALUE_PATTERNS: RegExp[] = [
+  /Bearer\s+\S+/gi,
+  /\bsk-ant-[A-Za-z0-9_-]{8,}/g,
+  /\bsk-(?:proj-|live-|test-)?[A-Za-z0-9_-]{20,}/g,
+  /\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}/g,
+  /\bgithub_pat_[A-Za-z0-9_]{20,}/g,
+  /\bAKIA[0-9A-Z]{16}\b/g,
+  /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g,
+  /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
+]
+
+const SECRET_ENV_NAME = /(KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL)/i
+
+/** Literal values of secret-looking environment variables, read at call time. */
+function secretEnvValues(): string[] {
+  return Object.entries(process.env)
+    .filter(([name, value]) => SECRET_ENV_NAME.test(name) && typeof value === 'string' && value.length >= 8)
+    .map(([, value]) => value as string)
+    .sort((a, b) => b.length - a.length)
+}
+
 function sanitizeString(value: string): string {
-  // Redact bearer tokens inline
-  return value.replace(/Bearer\s+\S+/gi, 'Bearer [REDACTED]')
+  let result = value.replace(/Bearer\s+\S+/gi, 'Bearer [REDACTED]')
+  for (const pattern of SECRET_VALUE_PATTERNS.slice(1)) result = result.replace(pattern, '[REDACTED]')
+  for (const secret of secretEnvValues()) {
+    if (result.includes(secret)) result = result.split(secret).join('[REDACTED]')
+  }
+  return result
+}
+
+/** Redacts secrets by key name and by value. Applied to tool output and to recorded tool input. */
+export function redactSecrets(value: unknown): unknown {
+  return sanitizeOutput(value)
 }

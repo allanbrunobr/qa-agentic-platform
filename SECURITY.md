@@ -16,7 +16,10 @@ This is an alpha, single-maintainer project. The areas that matter most:
   They pass through the ingestion boundary (`packages/dashboard-api/src/ingestion/boundary.ts`)
   before any prompt is built. Bypasses of this boundary are in scope.
 - **Secrets.** The installer can write a provider key to `<repo>/.agentic-qa/.env.local`.
-  Any path that logs, commits, or sends that key elsewhere is in scope.
+  Any path that logs, commits, or sends that key elsewhere is in scope. The runtime runs the target's
+  CLI with a minimal environment that never includes provider keys or test credentials, and redacts
+  secrets by value (provider keys, GitHub and AWS tokens, JWTs, private keys, and the values of
+  secret-named environment variables) in tool output and in the tool input recorded in session events.
 - **Host code.** `install-local` and `discover-local` must only write inside `<repo>/.agentic-qa/`.
   A write outside that directory is a bug. A symlinked `.agentic-qa` is refused, and so is any
   symlinked folder or generated file inside it: `discover-local` fails with

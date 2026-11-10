@@ -15,7 +15,7 @@ import { REPORT_FINDING_TOOL, type ReportedFinding } from '../tools/finding-tool
 import { buildStepInstructionEnvelope, getGlobalAgenticInstructions } from './instruction-layer.js'
 import type { L5LearningSignal, RuntimeLearningOverlay, SessionService } from './session-service.js'
 import { defaultRuntimeHookBus, type RuntimeHookBus } from './runtime-hooks.js'
-import type { ToolRegistry } from './tool-registry.js'
+import { redactSecrets, type ToolRegistry } from './tool-registry.js'
 import { resolveProviderModel } from '../providers/provider-factory.js'
 import type { RuntimeProvider } from '../../services/runtime-settings.js'
 
@@ -416,14 +416,14 @@ export class AgentRuntime {
         this.sessionService.appendEvent(sessionId, {
           type: 'tool_call',
           agentRole: profile.role,
-          payload: { toolName, toolCallId, input: toolCall.input ?? toolCall.args ?? {} },
+          payload: { toolName, toolCallId, input: redactSecrets(toolCall.input ?? toolCall.args ?? {}) },
         })
         await this.hooks.emit('beforeToolCall', {
           sessionId,
           agentRole: profile.role,
           toolName,
           toolCallId,
-          payload: { input: toolCall.input ?? toolCall.args ?? {} },
+          payload: { input: redactSecrets(toolCall.input ?? toolCall.args ?? {}) },
         })
 
         const toolContext: ToolContext = {

@@ -166,7 +166,8 @@ Runtime variables, read by the generated runtime:
 | `AGENTIC_QA_API_TOKEN_PATH` | Location of the local API token. Default `.agentic-qa/data/runtime-api.token`, created on first start. Every API request except `GET /health` needs the header `x-agentic-token` with its contents; the dashboard adds it through its proxy. |
 | `AGENTIC_QA_API_URL` | Where the dashboard's dev-server proxy forwards `/api` and `/ws`. The launcher sets it. |
 | `GENERIC_API_BASE_URL` / `TARGET_API_BASE_URL` / `API_BASE_URL` | Real HTTP probes for backend API repositories. |
-| `GENERIC_CLI_COMMAND` / `TARGET_CLI_COMMAND` | CLI to probe when the `bin` entry in `package.json` is not sufficient. |
+| `GENERIC_CLI_COMMAND` / `TARGET_CLI_COMMAND` | CLI to probe when the `bin` entry in `package.json` is not sufficient. The CLI runs with a minimal environment (`PATH`, `HOME`, locale, temp dirs) and never receives provider keys or test credentials; it accepts only help/version flags and plain subcommand names. |
+| `AGENTIC_QA_CLI_ENV_ALLOWLIST` | Comma-separated extra environment variable names passed to the target CLI. |
 | `AGENTIC_QA_TEMPLATE_ROOT` | Installer only. Absolute path to an alternative runtime template. |
 
 If the adapter cannot infer application credentials (login users, seed data) from the repository, supply them yourself.
