@@ -687,6 +687,9 @@ async function testInstalledSourceMatchesTemplate() {
     }
     for (const pkg of ['api', 'web']) await walk(path.join('packages', pkg, 'src'))
     assert(compared > 100, `installed runtime source was compared (${compared} files)`)
+    const metadata = JSON.parse(await readFile(path.join(installedRoot, 'adapter', 'config', 'install-metadata.generated.json'), 'utf8')) as { templateVersion?: unknown }
+    const templateVersion = (JSON.parse(await readFile(path.join(templateRoot, 'package.json'), 'utf8')) as { version: string }).version
+    assert(metadata.templateVersion === templateVersion, `install metadata records the template version (got ${JSON.stringify(metadata.templateVersion)}, want ${templateVersion})`)
     assert(differing.length === 0, `installed runtime source is the template source (differs: ${differing.join(', ') || 'none'})`)
   } finally {
     for (const key of keys) {

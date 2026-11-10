@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import * as schema from './schema.js';
+import { applyMigrations, baselineMigration } from './migrations.js';
 
 // Resolved on every initDb() call, not at import time: tests set DATABASE_URL
 // after imports are hoisted and must never touch the on-disk database.
@@ -30,8 +31,20 @@ export function initDb(): ReturnType<typeof drizzle<typeof schema>> {
 
   _db = drizzle(_sqlite, { schema });
 
-  // Auto-create tables using raw SQL (avoids needing drizzle-kit push at runtime)
-  _sqlite.exec(`
+  // Versioned migrations (A-03). The baseline creates the tables with raw SQL (no drizzle-kit push at
+  // runtime) and adds the columns a table from an older install lacks.
+  applyMigrations(_sqlite, 'dashboard', [
+    baselineMigration(DASHBOARD_SCHEMA_SQL, () => new Database(':memory:')),
+  ]);
+
+  console.log(`[db] Initialized SQLite database at ${dbPath}`);
+  return _db;
+}
+
+// Migration 1 (baseline) of the dashboard tables. It never changes: a later schema change is a new
+// numbered migration in initDb. The former "ALTER TABLE runs ADD COLUMN ..." list is covered by the
+// baseline's column reconciliation.
+const DASHBOARD_SCHEMA_SQL = `
     CREATE TABLE IF NOT EXISTS runs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       scenario_id TEXT NOT NULL,
@@ -95,24 +108,7 @@ export function initDb(): ReturnType<typeof drizzle<typeof schema>> {
     CREATE INDEX IF NOT EXISTS idx_findings_severity ON findings(severity);
     CREATE INDEX IF NOT EXISTS idx_findings_agent ON findings(agent);
     CREATE INDEX IF NOT EXISTS idx_pr_links_run_id ON pr_links(run_id);
-  `);
-
-  // Idempotent migrations: add columns to runs
-  const runMigrations = [
-    'ALTER TABLE runs ADD COLUMN error_message TEXT',
-    "ALTER TABLE runs ADD COLUMN run_source TEXT DEFAULT 'unknown'",
-    'ALTER TABLE runs ADD COLUMN artifacts TEXT',
-    'ALTER TABLE runs ADD COLUMN suite_type TEXT',
-    'ALTER TABLE runs ADD COLUMN clean_db_before_run INTEGER',
-    'ALTER TABLE runs ADD COLUMN started_by TEXT',
-  ];
-  for (const sql of runMigrations) {
-    try { _sqlite.exec(sql); } catch { /* column already exists */ }
-  }
-
-  console.log(`[db] Initialized SQLite database at ${dbPath}`);
-  return _db;
-}
+`;
 
 export function closeDb(): void {
   if (_sqlite) {

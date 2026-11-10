@@ -15,6 +15,7 @@ import type {
   StepExecutionStatus,
 } from '../types/scenario-types.js'
 import { diagnoseFailureMessage } from './failure-diagnosis-service.js'
+import { applyMigrations, baselineMigration } from '../../db/migrations.js'
 
 const DEFAULT_PHASE2_ARTIFACT_DIR = process.env['PHASE2_ARTIFACT_DIR'] ?? path.resolve(process.cwd(), 'artifacts')
 
@@ -2471,7 +2472,15 @@ export class SessionService {
   }
 
   private ensureTables(): void {
-    this.sqlite.exec(`
+    applyMigrations(this.sqlite, 'phase2-sessions', [
+      baselineMigration(SESSION_SCHEMA_SQL, () => new Database(':memory:')),
+    ])
+  }
+}
+
+// Migration 1 (baseline) of the phase2 session tables. It never changes: a later schema change is a
+// new numbered migration in ensureTables (A-03).
+const SESSION_SCHEMA_SQL = `
       CREATE TABLE IF NOT EXISTS p2_sessions (
         session_id TEXT PRIMARY KEY,
         run_id INTEGER,
@@ -2733,9 +2742,7 @@ export class SessionService {
       CREATE INDEX IF NOT EXISTS idx_p2_l5_learning_signals_source ON p2_l5_learning_signals(source_type, source_id, created_at);
       CREATE INDEX IF NOT EXISTS idx_p2_l5_learning_signals_subject ON p2_l5_learning_signals(subject_type, subject_id, created_at);
       CREATE INDEX IF NOT EXISTS idx_p2_tool_ledger_closures_session ON p2_tool_ledger_closures(session_id, closed_at);
-    `)
-  }
-}
+`
 
 export interface QualityGateReset {
   id: string

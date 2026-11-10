@@ -690,3 +690,49 @@ raiz de 1 alta para 0.
 - `npm run audit:deps` continua saindo com 0 depois das dependências novas.
 
 **Verificação:** `typecheck` 0; `npm test` 0 (API 460, rotas `node:test` 27, web 121); `verify:release` 0; `test:e2e` 0.
+
+## A-03 · Sem caminho de atualização para runtimes já instalados — parte feita
+
+**O que mudou**
+
+- `templates/.../packages/api/src/db/migrations.ts`:
+  - `applyMigrations` registra a versão por componente numa tabela `schema_migrations`, aplica
+    cada migração pendente numa transação própria e recusa (`SchemaTooNewError`) um banco escrito
+    por um runtime mais novo.
+  - `baselineMigration` é a migração 1 de cada componente. Ela adota bancos de antes do
+    versionamento: cria as tabelas que faltam, compara cada tabela com um banco de referência em
+    memória criado com o mesmo DDL, adiciona as colunas ausentes e só então cria os índices.
+  - Uma coluna que o SQLite não consegue adicionar (chave primária, ou NOT NULL sem default) gera
+    erro explícito, em vez de um 500 mais tarde.
+- Por que não `PRAGMA user_version`, como sugeria o relatório: as tabelas do dashboard
+  (`db/index.ts`) e as de sessão (`SessionService`) ficam no mesmo arquivo por padrão
+  (`DATABASE_URL` ou `./persona-qa.db`), e um só `user_version` serviria a dois donos de schema.
+- `db/index.ts` (componente `dashboard`) e `SessionService` (componente `phase2-sessions`) passam
+  pela baseline. A lista de `ALTER TABLE runs ADD COLUMN …` com `catch` silencioso saiu; a
+  reconciliação cobre isso.
+- Mudanças futuras de schema entram como migração numerada; a baseline não muda.
+- O instalador grava `templateVersion` no `install-metadata.generated.json`.
+
+**Testes**
+
+- `src/db/__tests__/migrations.test.ts`, 8 casos. Nos quatro que montam um banco antigo, o código
+  anterior falhou. Destaque: `table p2_sessions has no column named run_id` ao criar uma sessão
+  num banco de uma instalação antiga, que é o impacto descrito no relatório.
+- Mutações, todas mortas:
+  - baseline sem reconciliar;
+  - sem a recusa de schema mais novo;
+  - índices criados antes da reconciliação. Essa sobreviveu à primeira versão dos testes; entrou
+    um caso com uma tabela antiga sem as colunas de um índice;
+  - `COMMIT` no lugar de `ROLLBACK` quando a migração falha.
+- Shim do instalador: as 27 suítes de rotas passam com `better-sqlite3` trocado pelo shim. Um script
+  de verificação com o shim mostrou:
+  - banco antigo adotado (colunas adicionadas, linha antiga preservada);
+  - versão registrada;
+  - banco mais novo recusado.
+- `testInstalledSourceMatchesTemplate` também confere o `templateVersion` do metadata.
+
+**Fica para o Allan / próximo passo:** o comando `upgrade-local`, que reinstala o runtime de um
+repositório preservando `.env.local`, banco e artefatos. Ele depende de decidir o que um upgrade pode
+sobrescrever. O versionamento de schema acima é o que torna esse comando seguro.
+
+**Verificação:** `typecheck` 0; `npm test` 0 (API 468, rotas `node:test` 27, web 121); `verify:release` 0; `test:e2e` 0.

@@ -704,8 +704,11 @@ export async function installLocalPackage(input: { repoPath: string }) {
   )
   await fs.chmod(launcherPath, 0o755)
 
+  // A-03: which runtime version this repository got, so an update can tell what it is replacing.
+  const templatePackage = JSON.parse(await fs.readFile(path.join(templateRoot, 'package.json'), 'utf8')) as { version?: unknown }
   const metadata = {
     installedAt: new Date().toISOString(),
+    templateVersion: typeof templatePackage.version === 'string' ? templatePackage.version : null,
     templateSource: templateRoot,
     installedPath,
     localPackageDirname: LOCAL_PACKAGE_DIRNAME,
