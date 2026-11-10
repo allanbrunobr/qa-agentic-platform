@@ -252,6 +252,7 @@ Other verifiers are available as `npm run verify:<name>`. See the `scripts` sect
 - [Architecture](docs/architecture.md): components, data flow, maturity levels L1–L5, security boundaries
 - [Generated files](docs/generated-files.md): what `install-local` and `discover-local` write, and what to review
 - [Testing](docs/testing.md): test layers and how to run each one
+- [Environment variables](docs/environment-variables.md): every variable the code reads, checked by `npm run verify:env-docs`
 - [Decision records](docs/decisions/): why the runtime is host-local, why runs are checked against deterministic contracts, why generic capabilities fail closed, how repository content is treated as untrusted
 - [Contributor and agent guidelines](AGENTIC.md)
 - [Changelog](CHANGELOG.md)

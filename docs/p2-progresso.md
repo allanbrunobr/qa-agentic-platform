@@ -940,3 +940,33 @@ carregando tudo. Paginar exige mudar o contrato dessas rotas.
 Testes em `phase2/__tests__/minor-security.test.ts`; os 3 casos falharam antes das correções.
 
 **Verificação:** `typecheck` 0; `npm test` 0 (API 476, rotas `node:test` 27, web 121); `verify:release` 0; `test:e2e` 0.
+
+## M-01 · Variáveis de ambiente não documentadas — feito
+
+**O que mudou**
+
+- `docs/environment-variables.md`: tabela única com as 79 variáveis que o código lê, agrupadas por
+  onde são lidas: provedores, control plane, runtime instalado (servidor e segurança; alvo, adapter
+  e cenários; loop L5; modelo legado), script live, gate e testes. As descrições foram conferidas no
+  código; destaque para `HOST` (expõe a API para fora da máquina) e `OPENAI_BASE_URL` (para onde vai
+  a chave OpenAI).
+- `scripts/verify-env-docs.mjs` (`npm run verify:env-docs`, dentro do `test:unit`) falha se o código
+  ler uma variável fora da tabela. Conta como leitura, em arquivos que não são de teste:
+  - `process.env.X`, `process.env['X']`, `env.X` e `env['X']`;
+  - qualquer literal `AGENTIC_*`, `PERSONA_QA_*`, `PHASE2_*`, `ANTHROPIC_*` ou `OPENAI_*`, o que
+    pega nomes passados a helpers como `readNumberEnv('…')` e `envOverride('…')`.
+  Fica fora o `import.meta.env` do Vite e os nomes de processo (`PATH`, `NODE_ENV`, …).
+- Link no README.
+
+**Medição do instrumento**
+
+- Sem o documento, o verificador acusou as 79 variáveis.
+- Com duas leituras plantadas em `app.ts` (`process.env['UNDOCUMENTED_PROBE_VAR']` e
+  `readSomething('AGENTIC_QA_PROBE_FLAG')`), acusou as duas.
+- Limite: um nome montado em tempo de execução, sem um desses prefixos, não é visto. O lançador
+  shell gerado também não entra.
+- Achado de passagem: há dois nomes para o diretório de adapters (`AGENTIC_ADAPTERS_ROOT`, lido pelo
+  control plane, e `AGENTIC_PLATFORM_ADAPTERS_ROOT`, lido pelo materializador). Fica anotado no
+  M-03.
+
+**Verificação:** `typecheck` 0; `npm test` 0 (`verify-env-docs` no `test:unit`: 79 lidas, 79 documentadas; API 476, rotas `node:test` 27, web 121); `verify:release` 0; `test:e2e` 0.
