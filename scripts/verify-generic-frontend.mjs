@@ -5,6 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { removeFixtureOnExit } from './lib/temp-fixture.mjs'
 import { isolatedProviderEnv } from './lib/provider-isolation.mjs'
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url))
@@ -97,6 +98,7 @@ function verifyInstalledDocs() {
 function createFixture() {
   fs.rmSync(fixtureRoot, { recursive: true, force: true })
   fs.mkdirSync(fixtureRoot, { recursive: true })
+  removeFixtureOnExit(fixtureRoot, 'verify-generic-frontend')
   writeFile('package.json', `${JSON.stringify({
     name: 'generic-storefront-fixture',
     private: true,

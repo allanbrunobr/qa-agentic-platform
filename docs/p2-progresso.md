@@ -849,3 +849,28 @@ depois da decisão acima.
 - Mutação: sem gravar o que o adapter reporta, 3 checagens falham.
 
 **Verificação:** `typecheck` 0; `npm test` 0 (motor do core no `test:unit`; API 468, rotas `node:test` 27, web 121); `verify:release` 0; `test:e2e` 0.
+
+## T-07 · Os verificadores vazavam fixtures temporárias — feito
+
+**O que mudou**
+
+- `scripts/lib/temp-fixture.mjs` (`removeFixtureOnExit`) remove a fixture quando o processo do
+  verificador termina, com sucesso ou falha. `KEEP_VERIFY_FIXTURES=1` mantém a fixture para
+  depuração e imprime o caminho.
+- Aplicado aos cinco verificadores que vazavam: `verify-static-frontend-scanner`,
+  `verify-domain-fixture-matrix`, `verify-generic-repository-types`,
+  `verify-generic-runtime-execution` e `verify-generic-frontend`. O do e2e
+  (`storefront-runtime`) já limpava, com `KEEP_E2E_DIR`.
+
+**Medição** (com `TMPDIR` apontado para o scratchpad, para contar só o que cada rodada deixa)
+
+- A versão antiga do `verify-static-frontend-scanner` deixou 1 diretório.
+- As versões novas dos cinco deixaram 0.
+- Com `KEEP_VERIFY_FIXTURES=1`, ficou 1, com o caminho impresso.
+
+**Para o Allan:** o diretório temporário desta máquina já tem 240 diretórios
+`agentic-platform-*`, somando 11 GB. Boa parte veio das rodadas de CI deste trabalho. Não apaguei,
+porque fica fora do repositório. Os verificadores passam a não acumular mais; os existentes podem
+ser removidos à mão.
+
+**Verificação:** `typecheck` 0; `npm test` 0 (API 468, rotas `node:test` 27, web 121); `verify:release` 0; `test:e2e` 0. Diretórios `agentic-platform-*` no temporário: 245 antes do CI completo, 245 depois. A rodada anterior, sem a correção, tinha deixado 5.
