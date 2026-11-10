@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import type { AdapterExecutionDraft } from '../../../host-sdk/src/adapter-model.ts'
 import type { ExecutionEventRecord, ExecutionRecord } from '../types/api.ts'
+import { atomicWriteFile, withExclusiveFileMutation } from '../../../core/src/runtime/exclusive-file.ts'
 import { EXECUTIONS_DATA_PATH as DATA_PATH } from '../config/platform-paths.ts'
 
 async function ensureStore() {
@@ -21,21 +22,25 @@ async function readStore(): Promise<ExecutionRecord[]> {
 }
 
 async function writeStore(records: ExecutionRecord[]) {
-  await ensureStore()
-  await fs.writeFile(DATA_PATH, JSON.stringify(records, null, 2), 'utf8')
+  await fs.mkdir(path.dirname(DATA_PATH), { recursive: true })
+  await atomicWriteFile(DATA_PATH, JSON.stringify(records, null, 2))
 }
 
 async function mutateRecord(
   executionId: string,
   mutator: (record: ExecutionRecord) => void,
 ): Promise<ExecutionRecord> {
-  const records = await readStore()
-  const index = records.findIndex((record) => record.executionId === executionId)
-  if (index === -1) throw new Error(`Execution not found: ${executionId}`)
-  mutator(records[index])
-  records[index].updatedAt = new Date().toISOString()
-  await writeStore(records)
-  return records[index]
+  return withExclusiveFileMutation(DATA_PATH, async () => {
+    const records = await readStore()
+    const index = records.findIndex((record) => record.executionId === executionId)
+    if (index === -1) throw new Error(`Execution not found: ${executionId}`)
+    const current = records[index]
+    if (!current) throw new Error(`Execution not found: ${executionId}`)
+    mutator(current)
+    current.updatedAt = new Date().toISOString()
+    await writeStore(records)
+    return current
+  })
 }
 
 export async function createExecutionRecord(draft: AdapterExecutionDraft, sessionId: string): Promise<ExecutionRecord> {
@@ -59,9 +64,11 @@ export async function createExecutionRecord(draft: AdapterExecutionDraft, sessio
     updatedAt: now,
     events: [event],
   }
-  const records = await readStore()
-  records.unshift(record)
-  await writeStore(records)
+  await withExclusiveFileMutation(DATA_PATH, async () => {
+    const records = await readStore()
+    records.unshift(record)
+    await writeStore(records)
+  })
   return record
 }
 

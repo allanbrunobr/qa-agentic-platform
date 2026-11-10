@@ -18,6 +18,10 @@ This is an alpha, single-maintainer project. The areas that matter most:
 - **Secrets.** The installer can write a provider key to `<repo>/.agentic-qa/.env.local`.
   Any path that logs, commits, or sends that key elsewhere is in scope.
 - **Host code.** `install-local` and `discover-local` must only write inside `<repo>/.agentic-qa/`.
-  A write outside that directory is a bug.
+  A write outside that directory is a bug. A symlinked `.agentic-qa` is refused.
+  `.env.local` is rewritten on install and is not sourced by the launcher.
+- **Control plane.** `dev:api` and `dev:web` listen on `127.0.0.1`. Requests other than
+  `GET /health` require the token in `data/control-plane.token`.
 
 Running the generated dashboard on a public interface is not supported. Bind it to localhost.
+The generated API reflects only the local web origins, not an arbitrary browser origin.

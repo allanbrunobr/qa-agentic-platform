@@ -246,12 +246,7 @@ function buildGenericDraft(
     }
   }
 
-  const hasCart = /\bcart\b|\bcheckout\b|\bcustomer\b|\bshipping\b|\bproduct\b/.test(sourceText.toLowerCase())
-  const scenarioTitle = hasCart ? 'Checkout smoke flow' : 'Primary user smoke flow'
-  const scenarioId = hasCart ? 'checkout_smoke' : 'primary_user_smoke'
-  const allowedTools = hasCart
-    ? ['fillCustomerEmail', 'addCartItem', 'submitOrder', 'captureScreenshot']
-    : ['openPrimaryRoute', 'interactWithPrimaryAction', 'verifyPrimaryFeedback', 'captureScreenshot']
+  const allowedTools = ['openPrimaryRoute', 'interactWithPrimaryAction', 'verifyPrimaryFeedback', 'captureScreenshot']
 
   return {
     personas: [
@@ -264,13 +259,11 @@ function buildGenericDraft(
     ],
     scenarios: [
       {
-        id: scenarioId,
-        title: scenarioTitle,
+        id: 'primary_user_smoke',
+        title: 'Primary user smoke flow',
         participatingRoles: ['primary_user'],
-        rationale: 'Generated from deterministic generic frontend discovery.',
-        candidateSteps: hasCart
-          ? ['fill_customer_email', 'add_cart_item', 'submit_order']
-          : ['open_primary_route', 'interact_with_primary_action', 'verify_primary_feedback'],
+        rationale: 'Generated from deterministic generic frontend discovery. Domain-specific scenario ids are written by the domain specialist.',
+        candidateSteps: ['open_primary_route', 'interact_with_primary_action', 'verify_primary_feedback'],
       },
     ],
     capabilityCandidates: allowedTools,

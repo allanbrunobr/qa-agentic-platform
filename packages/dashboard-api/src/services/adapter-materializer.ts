@@ -140,7 +140,7 @@ export const ${authConst}: AdapterAuthModel = ${print({
 export const ${routesConst}: AdapterRouteModel[] = ${print(
     input.report.surfaces.map((surface) => ({
       id: surface.id,
-      path: '/TODO',
+      path: 'unresolved',
       purpose: `${surface.kind}: ${surface.label}`,
     })),
   )} as const

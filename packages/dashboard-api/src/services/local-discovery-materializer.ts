@@ -308,7 +308,7 @@ function inferRouteForSurface(surface: DiscoveryReport['surfaces'][number]) {
     const route = extractRoutePathFromEvidence(evidence)
     if (route && route !== '/') return route
   }
-  return '/TODO'
+  return 'unresolved'
 }
 
 async function readTextIfExists(filePath: string) {
@@ -362,6 +362,29 @@ async function removeGeneratedFilesIfExists(directory: string) {
   }
 }
 
+const LOGIN_ROUTE = /(?:^|\/)(login|sign-in|signin|log-in)(?:\/|$)/i
+
+function detectLoginRoute(report: DiscoveryReport): string | null {
+  for (const surface of report.surfaces) {
+    for (const evidence of surface.evidence ?? []) {
+      const route = extractRoutePathFromEvidence(evidence)
+      if (route && route.startsWith('/') && LOGIN_ROUTE.test(route)) return route
+    }
+  }
+  return null
+}
+
+async function detectAuthProviders(repoPath: string): Promise<string[]> {
+  const repoRoot = await fs.realpath(repoPath)
+  const packageText = await readTextIfExists(path.join(repoRoot, 'package.json'))
+  if (!packageText) return []
+  const lower = packageText.toLowerCase()
+  const providers: string[] = []
+  if (lower.includes('next-auth') || lower.includes('@auth/')) providers.push('next-auth')
+  if (lower.includes('keycloak')) providers.push('keycloak')
+  return providers
+}
+
 async function detectAuth(repoPath: string, report: DiscoveryReport) {
   if (report.repository && report.repository.kind !== 'frontend') {
     return {
@@ -375,35 +398,29 @@ async function detectAuth(repoPath: string, report: DiscoveryReport) {
     }
   }
 
-  const loginPage = path.join(repoPath, 'apps/webapp/src/app/(auth)/login/page.tsx')
-  const autoLoginPage = path.join(repoPath, 'apps/webapp/src/app/(auth)/(layout-redirect)/auto-login/page.tsx')
-  const loginHook = path.join(repoPath, 'apps/webapp/src/modules/auth/login/hooks/use-login-email-password.ts')
-  const googleButton = path.join(repoPath, 'apps/webapp/src/modules/auth/login/ui/page-form-signin-google-button.tsx')
-  const packageJsonPath = path.join(repoPath, 'apps/webapp/package.json')
-
-  const [loginHookText, googleButtonText, packageJsonText] = await Promise.all([
-    readTextIfExists(loginHook),
-    readTextIfExists(googleButton),
-    readTextIfExists(packageJsonPath),
-  ])
-
-  const providers: string[] = []
-  if (loginHookText?.includes("signIn('credentials'")) providers.push('credentials')
-  if (googleButtonText?.includes("signIn('google'")) providers.push('google')
-  if (packageJsonText?.includes('next-auth')) providers.push('next-auth')
-  if (packageJsonText?.toLowerCase().includes('keycloak')) providers.push('keycloak')
+  const loginEntryPoint = detectLoginRoute(report)
+  const detectedProviders = await detectAuthProviders(repoPath)
+  if (!loginEntryPoint) {
+    return {
+      loginEntryPoint: 'not_applicable',
+      supportsRoleSwitch: false,
+      detectedProviders,
+      sessionHints: [
+        'no login surface detected in repository evidence',
+        detectedProviders.length > 0 ? `detected providers: ${detectedProviders.join(', ')}` : null,
+      ].filter((hint): hint is string => Boolean(hint)),
+    }
+  }
 
   return {
-    loginEntryPoint: (await readTextIfExists(loginPage)) ? '/login' : '/TODO',
-    supportsRoleSwitch: true,
-    detectedProviders: providers,
+    loginEntryPoint,
+    supportsRoleSwitch: false,
+    detectedProviders,
     sessionHints: [
-      (await readTextIfExists(autoLoginPage)) ? 'auto-login flow present at /auto-login' : null,
-      loginHookText?.includes('callbackUrl') ? 'credentials login uses callback redirect flow' : null,
-      googleButtonText?.includes("signIn('google'") ? 'google sign-in flow present' : null,
-      providers.length > 0 ? `detected providers: ${providers.join(', ')}` : null,
-      'review cookie/session handling and tenant/workspace switching before activation',
-    ].filter(Boolean),
+      `login surface detected at ${loginEntryPoint}`,
+      detectedProviders.length > 0 ? `detected providers: ${detectedProviders.join(', ')}` : null,
+      'review cookie/session handling before activation',
+    ].filter((hint): hint is string => Boolean(hint)),
   }
 }
 
@@ -431,6 +448,7 @@ function inferCapabilityRouteHint(capabilityId: string, routes: MaterializedRout
   }
   const candidates = routeMap[capabilityId] ?? []
   const route = routes.find((item) => (
+    item.path !== 'unresolved' &&
     item.path !== '/TODO' &&
     candidates.some((candidate) => item.path.startsWith(candidate))
   ))
@@ -640,7 +658,7 @@ function inferCapabilityRouteHintFromGraph(
   const endpointPath = selectPreferredEndpointPath(graphHint?.endpoints ?? [])
   if (!endpointPath) return currentRouteHint
 
-  if (!currentRouteHint || currentRouteHint === '/' || currentRouteHint === '/TODO') {
+  if (!currentRouteHint || currentRouteHint === '/' || currentRouteHint === '/TODO' || currentRouteHint === 'unresolved') {
     return endpointPath
   }
 
@@ -998,7 +1016,7 @@ function buildAuthRuntimeStub(auth: Awaited<ReturnType<typeof detectAuth>>) {
     return `export const generatedAuthRuntime = {
   loginEntryPoint: ${JSON.stringify(auth.loginEntryPoint)},
   supportsRoleSwitch: false,
-  detectedProviders: [],
+  detectedProviders: ${JSON.stringify(auth.detectedProviders)},
   sessionHints: ${JSON.stringify(auth.sessionHints, null, 2)},
 } as const
 
@@ -1215,6 +1233,23 @@ export async function materializeLocalDiscovery(input: {
   }))
 
   const scenarios = domainArtifacts?.scenarios ?? buildMaterializedScenarios(normalizedDraft.scenarios)
+  const publishedDraft: BootstrapDraft = {
+    personas: personas.map((persona) => ({
+      id: persona.id,
+      title: persona.title,
+      rationale: persona.goal,
+      allowedTools: persona.allowedCapabilities,
+    })),
+    scenarios: scenarios.map((scenario) => ({
+      id: scenario.id,
+      title: scenario.title,
+      participatingRoles: scenario.roles,
+      rationale: normalizedDraft.scenarios.find((item) => item.id === scenario.id)?.rationale ?? scenario.title,
+      candidateSteps: scenario.steps,
+    })),
+    capabilityCandidates: capabilities.map((capability) => capability.id),
+    hostNotes: normalizedDraft.hostNotes,
+  }
   const runtimePlan = buildRuntimePlan({
     auth,
     routes,
@@ -1263,7 +1298,7 @@ export async function materializeLocalDiscovery(input: {
     [path.join(adapterRoot, 'personas', 'personas.generated.json'), personas],
     [path.join(adapterRoot, 'scenarios', 'scenarios.generated.json'), scenarios],
     [path.join(adapterRoot, 'config', 'discovery-report.generated.json'), normalizedReport],
-    [path.join(adapterRoot, 'config', 'bootstrap-draft.generated.json'), normalizedDraft],
+    [path.join(adapterRoot, 'config', 'bootstrap-draft.generated.json'), publishedDraft],
     [path.join(adapterRoot, 'config', 'code-graph.generated.json'), codeGraph],
   ]
 
@@ -1333,6 +1368,6 @@ export async function materializeLocalDiscovery(input: {
     hostId,
     files: writtenFiles,
     report: normalizedReport,
-    draft: normalizedDraft,
+    draft: publishedDraft,
   }
 }

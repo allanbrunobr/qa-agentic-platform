@@ -54,14 +54,16 @@ const END_MARKER = 'END_EXTERNAL_UNTRUSTED_CONTENT';
  * the wrapper + provenance is the real boundary.
  */
 function neutralizeSyntacticMarkers(text: string): string {
-  let cleaned = text;
+  // Strip hidden characters before the marker regex so they cannot open a gap.
+  let cleaned = text.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F\u200B-\u200D\uFEFF]/g, '');
 
   // Stronger syntactic masking / Content Injection defense (expanded from .specs/agent-security/)
   // Non-anchored "System:" anywhere (mid-line, after newlines in paths, etc.)
   cleaned = cleaned.replace(/(?:^|[\s\n\r])(System:|###\s*System|<\s*\|im_start\|>\s*system|System prompt|Developer Mode|override prompt)/gmi, ' [REDACTED_SYSTEM_MARKER] ');
 
-  // Broad "ignore / override previous" patterns (very large window, multiple variants)
-  cleaned = cleaned.replace(/(?:ignore|disregard|forget|override|reset|bypass|disobey)[\s\S]{0,200}?(?:previous|prior|all|above|earlier|instructions?|rules?|prompts?|guidance|context|everything|directives?)/gi, '[REDACTED_IGNORE_INSTRUCTION]');
+  // Broad "ignore / override previous" patterns. 2000 chars closes the measured
+  // 220-character gap without treating the whole file as one instruction.
+  cleaned = cleaned.replace(/(?:ignore|disregard|forget|override|reset|bypass|disobey)[\s\S]{0,2000}?(?:previous|prior|all|above|earlier|instructions?|rules?|prompts?|guidance|context|everything|directives?)/gi, '[REDACTED_IGNORE_INSTRUCTION]');
 
   cleaned = cleaned.replace(/role\s*:\s*(system|assistant|user)/gi, '[REDACTED_ROLE_MARKER]');
 
@@ -70,11 +72,6 @@ function neutralizeSyntacticMarkers(text: string): string {
 
   // Repeated "do not / never" style injection attempts (larger)
   cleaned = cleaned.replace(/(?:(?:do not|never|ignore|disregard|override|bypass)[\s\S]{0,80}?){2,}/gi, '[REDACTED_INJECTION_ATTEMPT]');
-
-  // Control chars and zero-width that can hide instructions.
-  // Preserve structural whitespace (\t \n \r) so legitimate code/files remain usable.
-  // Only strip other C0 controls + DEL + zero-width.
-  cleaned = cleaned.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F\u200B-\u200D\uFEFF]/g, '');
 
   return cleaned;
 }

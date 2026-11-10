@@ -32,9 +32,19 @@ async function buildApp() {
     },
   });
 
-  // Register CORS — allow all origins for development
+  const allowedOrigins = new Set([
+    'http://127.0.0.1:5176',
+    'http://localhost:5176',
+    ...(process.env['AGENTIC_QA_WEB_ORIGIN'] ?? '').split(',').map((origin) => origin.trim()).filter(Boolean),
+  ])
   await app.register(cors, {
-    origin: true,
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.has(origin)) {
+        callback(null, true)
+        return
+      }
+      callback(null, false)
+    },
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true,

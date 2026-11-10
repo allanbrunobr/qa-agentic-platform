@@ -8,6 +8,7 @@ import {
   readGeneratedAdapterJson,
   resolveGeneratedTargetRepoPath,
 } from '../services/generated-adapter-runtime.js'
+import { confineEndpointUrl, confinePackageBin } from './endpoint-confinement.js'
 
 interface PackageJson {
   name?: unknown
@@ -881,7 +882,16 @@ async function callEndpoint(endpointPath: string): Promise<Record<string, unknow
     }
   }
 
-  const url = new URL(endpointPath, baseUrl).toString()
+  const url = confineEndpointUrl(endpointPath, baseUrl)
+  if (!url) {
+    return {
+      executed: false,
+      mode: 'refused',
+      endpointPath,
+      status: null,
+      reason: 'Endpoint path is outside the configured origin.',
+    }
+  }
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), 8_000)
 
@@ -925,12 +935,12 @@ async function resolveCliCommand(
   }
 
   const packageJson = await readPackageJson(targetRepoPath)
-  const bin = resolvePackageBin(packageJson)
+  const bin = confinePackageBin(targetRepoPath, resolvePackageBin(packageJson))
   if (!bin) return null
 
   return {
     command: process.execPath,
-    args: [path.resolve(targetRepoPath, bin), ...args],
+    args: [bin, ...args],
   }
 }
 

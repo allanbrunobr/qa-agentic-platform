@@ -13,6 +13,17 @@ import {
   type ScenarioCandidate,
   type ScenarioStepCandidate,
 } from '../../../host-sdk/src/domain-discovery-contracts.ts'
+import { ZodError } from 'zod'
+
+export class DiscoveryValidationError extends Error {
+  readonly code = 'discovery_validation_failed'
+  readonly statusCode = 422
+
+  constructor() {
+    super('Domain discovery did not satisfy the evidence schema.')
+    this.name = 'DiscoveryValidationError'
+  }
+}
 
 export interface DomainSpecialistOptions {
   maxCapabilities?: number
@@ -313,24 +324,32 @@ export function inferDomainDiscoveryBundle(
   const domain = buildDomainInference(selected, evidenceRefs)
   const audit = buildAudit(surfaceMap, selected, capabilities, scenarios)
 
-  assertEvidenceRefsExist(surfaceMap, domain.evidenceRefs, `domain:${domain.domain}`)
-  for (const candidate of [...personas, ...scenarios, ...capabilities, audit]) {
-    assertEvidenceRefsExist(surfaceMap, candidate.evidenceRefs, candidate.id)
-  }
-  for (const scenario of scenarios) {
-    for (const step of scenario.steps) {
-      assertEvidenceRefsExist(surfaceMap, step.evidenceRefs, step.id)
+  try {
+    assertEvidenceRefsExist(surfaceMap, domain.evidenceRefs, `domain:${domain.domain}`)
+    for (const candidate of [...personas, ...scenarios, ...capabilities, audit]) {
+      assertEvidenceRefsExist(surfaceMap, candidate.evidenceRefs, candidate.id)
     }
-  }
+    for (const scenario of scenarios) {
+      for (const step of scenario.steps) {
+        assertEvidenceRefsExist(surfaceMap, step.evidenceRefs, step.id)
+      }
+    }
 
-  return DomainDiscoveryBundleSchema.parse({
-    surfaceMap,
-    domain,
-    personas,
-    scenarios,
-    capabilities,
-    audit,
-  })
+    return DomainDiscoveryBundleSchema.parse({
+      surfaceMap,
+      domain,
+      personas,
+      scenarios,
+      capabilities,
+      audit,
+    })
+  } catch (error) {
+    if (error instanceof DiscoveryValidationError) throw error
+    if (error instanceof ZodError || (error instanceof Error && error.message.includes('references missing evidence'))) {
+      throw new DiscoveryValidationError()
+    }
+    throw error
+  }
 }
 
 function scoreDomainProfiles(surfaceMap: FrontendSurfaceMap): ScoredDomainProfile {
