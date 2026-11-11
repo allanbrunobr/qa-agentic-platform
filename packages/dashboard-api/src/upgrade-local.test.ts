@@ -162,6 +162,83 @@ try {
   check((await readFile(newerDb)).equals(newerBytes), 'that database is left byte for byte as it was')
   check((await readFile(sentinel, 'utf8')).includes('sentinel: must survive'), 'the installed code is not replaced either')
   check((await readdir(path.join(newer, '.agentic-qa'))).every((name) => !name.includes('.pre-upgrade-')), 'no backup is made')
+
+  // A-04 pre-PR run, #3: the copy only overwrote, so runtime files the template had removed (the legacy
+  // run routes, their runner and pages) stayed in an upgraded install. Runtime code the template no
+  // longer has is removed; what the copy leaves out (dependencies, builds, data, artifacts) is kept.
+  const stale = await tempRepo('stale')
+  await installLocalPackage({ repoPath: stale })
+  const inStale = (...parts: string[]) => path.join(stale, '.agentic-qa', ...parts)
+  const staleFiles = [
+    inStale('packages', 'api', 'src', 'routes', 'runs.ts'),
+    inStale('packages', 'api', 'src', 'services', 'runner.ts'),
+    inStale('packages', 'web', 'src', 'pages', 'Runs.tsx'),
+    inStale('packages', 'web', 'src', 'legacy-only', 'Old.tsx'),
+  ]
+  const keptFiles = [
+    inStale('packages', 'web', 'node_modules', 'some-dep', 'index.js'),
+    inStale('packages', 'web', 'dist', 'index.html'),
+    // Pre-PR review of a05d259: a .html file is kept by the extension filter alone, so it could not show
+    // that the sweep skips build output. A Vite build writes .js under dist/assets, which only the
+    // exclusion keeps.
+    inStale('packages', 'web', 'dist', 'assets', 'index-legacy.js'),
+    inStale('packages', 'api', 'artifacts', 'screenshots', 's1', '1.png'),
+    inStale('adapter', 'scenarios', 'scenarios.reviewed.json'),
+    inStale('data', 'runtime-settings.json'),
+  ]
+  for (const file of [...staleFiles, ...keptFiles]) {
+    await mkdir(path.dirname(file), { recursive: true })
+    await writeFile(file, 'x')
+  }
+  const staleResult = await upgradeLocalPackage({ repoPath: stale })
+  for (const file of staleFiles) check(!(await exists(file)), `upgrade removes runtime code the template no longer has: ${path.relative(stale, file)}`)
+  check(!(await exists(inStale('packages', 'web', 'src', 'legacy-only'))), 'and the directory it leaves empty')
+  for (const file of keptFiles) check(await exists(file), `upgrade keeps what the copy leaves out: ${path.relative(stale, file)}`)
+  check(await exists(inStale('packages', 'api', 'src', 'app.ts')), 'the current runtime code is in place')
+  // Pre-PR review of 0d64b8d, #3: the sweep deleted any file the template lacks, so a database the
+  // upgrader accepts through DATABASE_URL under a swept directory was deleted before its migration.
+  // Only runtime source files are swept; data, databases and their WAL files are never deleted.
+  const dbStale = await tempRepo('stale-db')
+  await installLocalPackage({ repoPath: dbStale })
+  const inDbStale = (...parts: string[]) => path.join(dbStale, '.agentic-qa', ...parts)
+  const sweptDb = inDbStale('packages', 'api', 'src', 'persona-qa.db')
+  writeOldDatabase(sweptDb)
+  const marker = new DatabaseSync(sweptDb)
+  marker.exec("CREATE TABLE marker (v TEXT); INSERT INTO marker VALUES ('alive')")
+  marker.close()
+  // Not a -wal file: SQLite itself discards an invalid WAL beside the database it opens.
+  // Pre-PR review of c477db1: data in JSON or Markdown (a personas file a PERSONA_QA_* variable points
+  // at, say) is not runtime code either, so it is kept too.
+  const keptBeside = [
+    inDbStale('packages', 'api', 'src', 'export.csv'),
+    inDbStale('packages', 'web', 'local.sqlite'),
+    inDbStale('packages', 'api', 'src', 'personas.custom.json'),
+    inDbStale('packages', 'web', 'notes.md'),
+  ]
+  for (const file of keptBeside) await writeFile(file, 'x')
+  const previousUrl = process.env.DATABASE_URL
+  process.env.DATABASE_URL = 'src/persona-qa.db'
+  let dbStaleResult
+  try {
+    dbStaleResult = await upgradeLocalPackage({ repoPath: dbStale })
+  } finally {
+    if (previousUrl === undefined) delete process.env.DATABASE_URL
+    else process.env.DATABASE_URL = previousUrl
+  }
+  check(await exists(sweptDb), 'a database under a swept directory survives the upgrade')
+  // A deleted database is recreated empty by the migration, so a missing table means its data was lost.
+  let markerRows: Array<{ v: string }> = []
+  try {
+    markerRows = new DatabaseSync(sweptDb).prepare('SELECT v FROM marker').all() as Array<{ v: string }>
+  } catch {
+    markerRows = []
+  }
+  check(markerRows[0]?.v === 'alive', `and keeps its data (got ${JSON.stringify(markerRows)})`)
+  for (const file of keptBeside) check(await exists(file), `a data file under a swept directory is kept: ${path.relative(dbStale, file)}`)
+  check(!(dbStaleResult?.removedStaleFiles ?? []).some((file) => /\.(db|sqlite)/.test(file)), 'no database is listed as removed')
+
+  const removedReport = staleResult.removedStaleFiles ?? []
+  check(removedReport.length === staleFiles.length && removedReport.every((file) => !path.isAbsolute(file)), `the upgrade result lists the removed files, relative (got ${JSON.stringify(removedReport)})`)
 } finally {
   for (const [key, value] of Object.entries(saved)) {
     if (value === undefined) delete process.env[key]

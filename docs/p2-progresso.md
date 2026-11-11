@@ -1571,3 +1571,98 @@ Não feita: não há chave configurada (nem no ambiente, nem em `.env.local` da 
 no repositório principal). Fica com o Allan.
 
 **Verificação (pós-PR, local):** `audit:deps` 0; `lint` 0; `typecheck` 0; `build` 0; `npm test` 0 (API 510, rotas `node:test` 27, web 125); `verify:release` 0; `test:e2e` 0.
+
+## A-04 · Legado do runtime instalado — parte sem decisão de produto (branch local `a04-legado`)
+
+Feito em branch própria (`a04-legado`), empilhada sobre o PR #1: rebaseada sobre `p2-correcoes` depois que o Allan decidiu (20:04) que a rodada de relato (1b22444) entra no PR #1.
+
+**Removido** (não tinha consumidor alcançável):
+- API: `POST /api/runs` (rodava `pnpm test:persona-qa` no diretório do projeto), `GET /api/runs*`,
+  `/api/scenarios*`, `/api/findings*` (com a rota de screenshot que o S-08 confinava), o WebSocket
+  `/ws/runs/:runId`, e `services/runner.ts`, `services/log-parser.ts`, `services/screenshot-path.ts`.
+- Web: 22 módulos que nenhuma página roteada importava (`Findings`, `PRTracking`, `Runs`,
+  `ScenarioDetail`, `Scenarios` e 17 componentes), os 16 arquivos de teste deles e as funções legadas de
+  `lib/api.ts`. A primeira busca de testes não viu os que ficam ao lado dos componentes; o typecheck acusou
+  3 e eles saíram também.
+- Docs: seção de variáveis do legado reescrita; `PERSONA_QA_TIMEOUT_MS`/`PERSONA_QA_SCENARIO` (lidas só pelo
+  runner) saíram; CHANGELOG ganhou "Removed" e a linha do S-08 diz que a rota saiu.
+
+**Medido:**
+- Teste `legacy-routes-removed.test.ts` com o `buildApp` real: as 11 rotas legadas dão o 404 do próprio
+  Fastify ("Route … not found"); antes: 11 falhas. A primeira versão só olhava o status 404, e 3 rotas já
+  davam 404 por id inexistente; o teste passou a exigir a mensagem de rota inexistente.
+- `GET /api/stats`, `/api/insights`, `/api/status`, `/api/suite-health`, `/api/personas`, `/api/p2/sessions`,
+  `/api/p2/scenarios` num banco novo: respostas idênticas antes e depois (snapshot conferido como
+  determinístico em duas execuções antes da remoção).
+- O teste do guard que fazia o upgrade em `/ws/runs/1` passou para `/ws/p2/sessions/s1` (101/401/403
+  mantidos).
+
+**Efeito colateral, já reparado:** a primeira execução do teste novo contra o código antigo chamou o
+`POST /api/runs` legado, que rodou `pnpm` na raiz do repositório: criou `pnpm-lock.yaml`,
+`pnpm-workspace.yaml`, `templates/integration-test/` e reinstalou o `node_modules` da raiz no layout do
+pnpm (resolvendo pelo `package.json`, não pelo `package-lock.json`). Os três arquivos foram apagados e o
+`node_modules` refeito com `npm ci`. É o risco que o A-04 descreve, observado.
+
+**Fica para o Allan (decisão de produto), intocado:** `/api/stats`, `/api/insights`, `/api/sync`, a sync no
+start da API, as tabelas legadas e o `drizzle-orm`. `/api/sync` e `/api/sync/summary` não têm chamador no
+dashboard, no CLI nem no control plane (só os próprios testes); os únicos chamadores eram `StaleBanner` e
+`SyncDiagnostics`, removidos acima por serem inalcançáveis. `/api/suite-health` também fica e também não tem
+chamador: o único era `SuiteHealthPanel`, que nenhuma página importava e saiu acima; ela lê só as tabelas
+legadas e vai junto com a decisão sobre elas. Fato para decidir: no launcher (cwd `.agentic-qa`), o
+diretório de dados da sync é `<repo>/../../integration-test/persona-tests` (fora do repositório-alvo),
+então as tabelas legadas ficam vazias e as contagens legadas de `/api/stats` ficam em zero. A página
+**Insights** não fica vazia, e não deve ser removida: com as tabelas vazias, `/api/insights` devolve três
+vereditos verdes que não refletem nada ("No UI issues detected", "Test suite is healthy", "No API issues
+detected"), e a mesma página é a do painel de governança L5 (propostas, healing, decisões e rascunhos de
+cenário, com aprovar, aplicar, rejeitar e promover), que lê as rotas agênticas `/api/p2/*`. A decisão é
+sobre os vereditos e as contagens: reescrevê-los sobre as sessões agênticas ou removê-los. (Corrigido na
+revisão pré-PR de `7d311dd`, achados #1 e #2: a versão anterior dizia que a página só lia as tabelas legadas
+e ficava sempre vazia.)
+
+**Não feito:** `AgenticSessionDetail.tsx` (com `StepHistoryPanel`) também não é alcançável, mas é do modelo
+agêntico e não está na lista do A-04; ficou. M-03 (renomear `persona-qa`, `/api/p2`, `PERSONA_QA_*`) pede
+escolha de nomes e aliases pelo Allan e colidiria com as branches abertas; não comecei. A-05 (arquivos-deus)
+é refatoração incremental sem mudança funcional em vista; não comecei.
+
+**Verificação (A-04, antes do rebase, sobre 16dc856):** `audit:deps` 0; `lint` 0; `typecheck` 0; `build` 0; `npm test` 0 (API 515 = 503 + 18 do teste novo − 6 do S-08; rotas `node:test` 25 = 27 − 2 de `runs.test.ts`; web 25 = 125 − 100 dos testes dos componentes removidos); `verify:release` 0; `test:e2e` 0. A verificação do `0d64b8d` (HEAD rebaseado com a correção do #3) está no fim desta seção.
+
+### Revisão pré-PR de `7d311dd` (HEAD de `a04-legado`): 4 vivos, 3 refutados — corrigidos
+
+| Achado | Correção | Teste (falhou antes) |
+|---|---|---|
+| #1, #2 O registro acima dizia que a página Insights só lia as tabelas legadas e ficava sempre vazia, e oferecia removê-la. Com as tabelas vazias ela mostra três vereditos verdes, e é a tela do painel de governança L5 | Texto corrigido acima: a decisão é sobre os vereditos e as contagens, não sobre a página | — (documento) |
+| #3 O `upgrade-local` (e uma reinstalação) só copiava por cima: os arquivos que o template removeu (rotas legadas, runner, páginas) ficavam na instalação atualizada, inclusive o spawn de `pnpm`, e no git do host que versiona `.agentic-qa/` | Depois de copiar cada diretório de código do runtime (`packages/api/src`, `packages/web`), o instalador apaga os arquivos que o template não tem mais, e os diretórios que ficam vazios. O que a cópia deixa de fora (`node_modules`, `dist`, artefatos, `data`, `adapter`) não é visitado. O resultado do `install-local` e do `upgrade-local` lista `removedStaleFiles` | `upgrade-local.test.ts`: instalação com `routes/runs.ts`, `services/runner.ts`, `pages/Runs.tsx` e um diretório só legado → depois do upgrade, removidos e listados; `node_modules`, `dist`, screenshot, cenário do `adapter` e `data/` ficam. Antes: 6 falhas. Mutação: sem o filtro de exclusão → apaga `node_modules`; sem remover diretório vazio → 1 falha; sem a remoção → 6 |
+| #4 A linha de verificação do A-04 era da árvore anterior ao rebase (API 515), não do HEAD que vira PR (522) | A linha acima diz de que árvore é; a verificação medida no `0d64b8d` vem logo depois desta tabela | — |
+
+**Verificação (`0d64b8d`, medida no M5 antes da regra de não rodar trabalho pesado nele):** `audit:deps` 0; `lint` 0; `typecheck` 0; `build` 0; `npm test` 0 (API 522, rotas `node:test` 25, web 25); `verify:release` 0; `test:e2e` 0; `gitleaks` sobre `main..HEAD` 0.
+
+### Revisão pré-PR de `0d64b8d` (base `origin/p2-correcoes`): 4 vivos, 4 refutados — corrigidos
+
+| Achado | Correção | Teste (falhou antes) |
+|---|---|---|
+| #1 `docs/testing.md` usava como exemplo de teste de rota o `runs.test.ts` apagado | O exemplo usa `stats.test.ts` | — (documento) |
+| #2 Esta seção prometia a verificação do HEAD "abaixo", e não havia | As frases apontam para a linha de verificação do `0d64b8d`, logo acima. A verificação do HEAD final é a do `ci-ok-remoto.sh` no M1, registrada no corpo do PR | — (documento) |
+| #3 A varredura do `upgrade-local` apagava qualquer arquivo que o template não tem em `packages/api/src` e `packages/web`, inclusive um banco que o upgrader aceita por `DATABASE_URL` (`src/persona-qa.db`, resolvido a partir de `packages/api`): o banco sumia e a migração o recriava vazio | A varredura só apaga código de script e estilo (`.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.jsx`, `.mjs`, `.cjs`, `.css`; ver a revisão de `c477db1` abaixo). Banco, WAL e os demais arquivos ficam | `upgrade-local.test.ts`, rodado isolado no M5 com `M5_LEVE=1`: banco em `packages/api/src` com `DATABASE_URL=src/persona-qa.db` mantém a tabela marcadora; `export.csv` e `local.sqlite` ficam; nenhum banco em `removedStaleFiles`. Antes: 4 falhas. Mutação do filtro: na fila do M1 |
+| #4 O commit `7d311dd` justifica manter `/api/sync` por ter consumidores, e não tem nenhum | O registro de decisão acima diz que `/api/sync` não tem chamador; o corpo do PR também. A mensagem do commit já publicado fica como está | — (documento) |
+
+### Revisão pré-PR de `c477db1`: 1 vivo, 3 refutados — corrigido
+
+| Achado | Correção | Teste (falhou antes) |
+|---|---|---|
+| #1 (baixo) A varredura ainda apagava `.json`, `.md`, `.html` e `.svg` não versionados sob `packages/api/src` e `packages/web`, que podem ser dados (um arquivo apontado por `PERSONA_QA_PERSONAS_FILE`, por exemplo), enquanto o docstring e este registro diziam que os demais dados ficam | A varredura só apaga código de script e estilo. Tudo o que o A-04 removeu é `.ts`/`.tsx`, então nada do objetivo se perde | `upgrade-local.test.ts`, isolado com `M5_LEVE=1`: `personas.custom.json` e `notes.md` sob os diretórios varridos ficam. Antes: 2 falhas |
+
+Um dos 8 agentes da rodada voltou vazio; as quatro lentes responderam (uma sem achados) e os três achados receberam veredito.
+
+### Verificação de `a05d259` no M1 e nova revisão pré-PR: 2 vivos, 1 refutado — corrigidos
+
+`a05d259` com Node 22.13.0 (o do CI) no M1: `npm ci`, `setup:runtime`, `audit:deps`, `lint`, `typecheck`, `build`, `npm test` (API 522/522, rotas 25, web 25, upgrade-local 43), `verify:release`, `test:e2e` e gitleaks sobre `main..a05d259`: todos 0. Com o Node 24.21.0 do executor do portão, `npm test` e `verify:release` abortavam dentro do `better-sqlite3` (`Assertion failed: (env) != nullptr`), sem nenhuma asserção de teste falhar. Mutantes da varredura no M1: os 9 que deviam morrer morreram; 2 informativos (sem `toLowerCase`, sem pular symlink) sobreviveram. O portão `ci-ok-remoto.sh` passou no `a05d259` e `a04-legado` foi publicada nele.
+
+A rodada pré-PR repetida no `a05d259` (a anterior tinha sido lançada de um script persistido antes do commit, e o portão de PR não a reconhecia):
+
+| Achado | Correção | Teste (falhou antes) |
+|---|---|---|
+| #1 (baixo) `legacy-routes-removed.test.ts` dizia que os endpoints mantidos são "the read endpoints the dashboard still uses", e `/api/suite-health` está na lista sem chamador; ela também faltava na lista de decisão do CHANGELOG e deste registro | Comentário corrigido; `/api/suite-health` entra nas listas de decisão, com o fato de que não tem chamador | — (documento) |
+| #2 (baixo) A fixture de `dist` no teste do upgrade era `.html`, que o filtro de extensão já guarda: um mutante que deixasse a varredura entrar em `dist` não era pego | Fixture `.js` em `packages/web/dist/assets`, que só a exclusão guarda (é o que o build do Vite gera) | `upgrade-local.test.ts`. Mutante "varredura entra em `dist`": na fila do M1 |
+
+O achado de que a varredura não limpa `packages/api/dist` foi refutado: `dist` é saída de build, fora do conjunto que a cópia substitui, e o launcher roda a partir de `src`.
+

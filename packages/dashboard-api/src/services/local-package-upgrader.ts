@@ -50,6 +50,8 @@ export interface UpgradeLocalResult {
   skippedDatabases: Array<{ path: string; reason: string }>
   /** Keys in .env.local the launcher would refuse; the reinstall replaced them (see install-local). */
   envLocalReplacedKeys: string[]
+  /** Runtime code files the template no longer has, removed by the reinstall (relative to the install). */
+  removedStaleFiles: string[]
 }
 
 async function loadTemplateModules(templateRoot: string) {
@@ -182,6 +184,7 @@ export async function upgradeLocalPackage(input: { repoPath: string; now?: Date 
     databases,
     skippedDatabases: skipped,
     envLocalReplacedKeys: installed.envLocalReplacedKeys,
+    removedStaleFiles: installed.removedStaleFiles,
   }
   metadata['lastUpgrade'] = {
     upgradedAt,

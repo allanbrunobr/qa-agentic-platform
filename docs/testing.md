@@ -71,7 +71,7 @@ npx vitest run src/phase2/__tests__/scenario-quality-gates.test.ts
 npx vitest run -t "scenario quality gates"
 
 # One route test (node:test)
-node --import tsx --test src/routes/__tests__/runs.test.ts
+node --import tsx --test src/routes/__tests__/stats.test.ts
 
 # One dashboard test
 cd ../web && npx vitest run src/components/__tests__/L5GovernancePanel.test.tsx
