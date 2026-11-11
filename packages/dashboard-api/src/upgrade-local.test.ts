@@ -178,6 +178,10 @@ try {
   const keptFiles = [
     inStale('packages', 'web', 'node_modules', 'some-dep', 'index.js'),
     inStale('packages', 'web', 'dist', 'index.html'),
+    // Pre-PR review of a05d259: a .html file is kept by the extension filter alone, so it could not show
+    // that the sweep skips build output. A Vite build writes .js under dist/assets, which only the
+    // exclusion keeps.
+    inStale('packages', 'web', 'dist', 'assets', 'index-legacy.js'),
     inStale('packages', 'api', 'artifacts', 'screenshots', 's1', '1.png'),
     inStale('adapter', 'scenarios', 'scenarios.reviewed.json'),
     inStale('data', 'runtime-settings.json'),

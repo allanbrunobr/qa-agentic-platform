@@ -5,8 +5,9 @@ import { closeDb, initDb } from '../db/index.js'
 // A-04 (docs/analise-20261109.md): the legacy run model stayed registered next to the agentic one.
 // POST /api/runs spawned `pnpm test:persona-qa` in the project directory, a command from the old
 // monorepo, and the pages that read these routes were not reachable from the dashboard. The routes are
-// gone; the read endpoints the dashboard still uses stay. Built with the real buildApp, so a route that
-// is still registered answers here.
+// gone; the read endpoints outside the A-04 list stay. /api/suite-health has no caller (its panel was
+// never imported) and waits for the decision on the legacy tables, with /api/sync. Built with the real
+// buildApp, so a route that is still registered answers here.
 
 const TOKEN = 'ab'.repeat(32)
 const HEADERS = { host: '127.0.0.1:3201', 'x-agentic-token': TOKEN }

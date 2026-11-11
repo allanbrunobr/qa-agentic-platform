@@ -1606,7 +1606,9 @@ pnpm (resolvendo pelo `package.json`, não pelo `package-lock.json`). Os três a
 **Fica para o Allan (decisão de produto), intocado:** `/api/stats`, `/api/insights`, `/api/sync`, a sync no
 start da API, as tabelas legadas e o `drizzle-orm`. `/api/sync` e `/api/sync/summary` não têm chamador no
 dashboard, no CLI nem no control plane (só os próprios testes); os únicos chamadores eram `StaleBanner` e
-`SyncDiagnostics`, removidos acima por serem inalcançáveis. Fato para decidir: no launcher (cwd `.agentic-qa`), o
+`SyncDiagnostics`, removidos acima por serem inalcançáveis. `/api/suite-health` também fica e também não tem
+chamador: o único era `SuiteHealthPanel`, que nenhuma página importava e saiu acima; ela lê só as tabelas
+legadas e vai junto com a decisão sobre elas. Fato para decidir: no launcher (cwd `.agentic-qa`), o
 diretório de dados da sync é `<repo>/../../integration-test/persona-tests` (fora do repositório-alvo),
 então as tabelas legadas ficam vazias e as contagens legadas de `/api/stats` ficam em zero. A página
 **Insights** não fica vazia, e não deve ser removida: com as tabelas vazias, `/api/insights` devolve três
@@ -1650,4 +1652,17 @@ escolha de nomes e aliases pelo Allan e colidiria com as branches abertas; não 
 | #1 (baixo) A varredura ainda apagava `.json`, `.md`, `.html` e `.svg` não versionados sob `packages/api/src` e `packages/web`, que podem ser dados (um arquivo apontado por `PERSONA_QA_PERSONAS_FILE`, por exemplo), enquanto o docstring e este registro diziam que os demais dados ficam | A varredura só apaga código de script e estilo. Tudo o que o A-04 removeu é `.ts`/`.tsx`, então nada do objetivo se perde | `upgrade-local.test.ts`, isolado com `M5_LEVE=1`: `personas.custom.json` e `notes.md` sob os diretórios varridos ficam. Antes: 2 falhas |
 
 Um dos 8 agentes da rodada voltou vazio; as quatro lentes responderam (uma sem achados) e os três achados receberam veredito.
+
+### Verificação de `a05d259` no M1 e nova revisão pré-PR: 2 vivos, 1 refutado — corrigidos
+
+`a05d259` com Node 22.13.0 (o do CI) no M1: `npm ci`, `setup:runtime`, `audit:deps`, `lint`, `typecheck`, `build`, `npm test` (API 522/522, rotas 25, web 25, upgrade-local 43), `verify:release`, `test:e2e` e gitleaks sobre `main..a05d259`: todos 0. Com o Node 24.21.0 do executor do portão, `npm test` e `verify:release` abortavam dentro do `better-sqlite3` (`Assertion failed: (env) != nullptr`), sem nenhuma asserção de teste falhar. Mutantes da varredura no M1: os 9 que deviam morrer morreram; 2 informativos (sem `toLowerCase`, sem pular symlink) sobreviveram. O portão `ci-ok-remoto.sh` passou no `a05d259` e `a04-legado` foi publicada nele.
+
+A rodada pré-PR repetida no `a05d259` (a anterior tinha sido lançada de um script persistido antes do commit, e o portão de PR não a reconhecia):
+
+| Achado | Correção | Teste (falhou antes) |
+|---|---|---|
+| #1 (baixo) `legacy-routes-removed.test.ts` dizia que os endpoints mantidos são "the read endpoints the dashboard still uses", e `/api/suite-health` está na lista sem chamador; ela também faltava na lista de decisão do CHANGELOG e deste registro | Comentário corrigido; `/api/suite-health` entra nas listas de decisão, com o fato de que não tem chamador | — (documento) |
+| #2 (baixo) A fixture de `dist` no teste do upgrade era `.html`, que o filtro de extensão já guarda: um mutante que deixasse a varredura entrar em `dist` não era pego | Fixture `.js` em `packages/web/dist/assets`, que só a exclusão guarda (é o que o build do Vite gera) | `upgrade-local.test.ts`. Mutante "varredura entra em `dist`": na fila do M1 |
+
+O achado de que a varredura não limpa `packages/api/dist` foi refutado: `dist` é saída de build, fora do conjunto que a cópia substitui, e o launcher roda a partir de `src`.
 
