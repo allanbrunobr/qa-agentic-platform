@@ -1662,7 +1662,7 @@ A rodada pré-PR repetida no `a05d259` (a anterior tinha sido lançada de um scr
 | Achado | Correção | Teste (falhou antes) |
 |---|---|---|
 | #1 (baixo) `legacy-routes-removed.test.ts` dizia que os endpoints mantidos são "the read endpoints the dashboard still uses", e `/api/suite-health` está na lista sem chamador; ela também faltava na lista de decisão do CHANGELOG e deste registro | Comentário corrigido; `/api/suite-health` entra nas listas de decisão, com o fato de que não tem chamador | — (documento) |
-| #2 (baixo) A fixture de `dist` no teste do upgrade era `.html`, que o filtro de extensão já guarda: um mutante que deixasse a varredura entrar em `dist` não era pego | Fixture `.js` em `packages/web/dist/assets`, que só a exclusão guarda (é o que o build do Vite gera) | `upgrade-local.test.ts`. Mutante "varredura entra em `dist`": na fila do M1 |
+| #2 (baixo) A fixture de `dist` no teste do upgrade era `.html`, que o filtro de extensão já guarda: um mutante que deixasse a varredura entrar em `dist` não era pego | Fixture `.js` em `packages/web/dist/assets`, que só a exclusão guarda (é o que o build do Vite gera) | `upgrade-local.test.ts`. Mutante "varredura entra em `dist`", no M1 com Node 22.13.0: morreu sobre `2c5c8ea` (na fixture `dist/assets/index-legacy.js`) e sobreviveu ao teste de `a05d259` |
 
 O achado de que a varredura não limpa `packages/api/dist` foi refutado: `dist` é saída de build, fora do conjunto que a cópia substitui, e o launcher roda a partir de `src`.
 
