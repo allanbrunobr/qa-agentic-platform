@@ -957,17 +957,6 @@ export interface Phase2ClosedLoopAuditBundle {
 }
 
 export const api = {
-  getRuns: () => fetchJSON(`${API_BASE}/api/runs`),
-  getRun: (id: number) => fetchJSON(`${API_BASE}/api/runs/${id}`),
-  triggerRun: (scenarioId?: string) =>
-    fetchJSON(`${API_BASE}/api/runs`, {
-      method: 'POST',
-      body: JSON.stringify({ scenario_id: scenarioId }),
-    }),
-  getScenarios: () => fetchJSON(`${API_BASE}/api/scenarios`),
-  getScenario: (id: string) => fetchJSON(`${API_BASE}/api/scenarios/${id}`),
-  getFindings: (params?: Record<string, string>) =>
-    fetchJSON(`${API_BASE}/api/findings?${new URLSearchParams(params)}`),
   getStatus: () => fetchJSON<DashboardStatus>(`${API_BASE}/api/status`),
   getStats: () => fetchJSON<DashboardStats>(`${API_BASE}/api/stats`),
   getPersonas: () => fetchJSON(`${API_BASE}/api/personas`),
@@ -977,7 +966,6 @@ export const api = {
       body: JSON.stringify(data),
     }),
   getInsights: () => fetchJSON(`${API_BASE}/api/insights`),
-  getFindingScreenshotUrl: (id: number) => `${API_BASE}/api/findings/${id}/screenshot`,
   getRuntimeSettings: () => fetchJSON<RuntimeSettingsResponse>(`${API_BASE}/api/settings/runtime`),
   updateRuntimeSettings: (data: { provider: 'anthropic' | 'openai' }) =>
     fetchJSON<RuntimeSettingsResponse>(`${API_BASE}/api/settings/runtime`, {

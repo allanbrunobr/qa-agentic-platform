@@ -53,7 +53,7 @@ async function start(): Promise<void> {
   try {
     await app.listen({ port: PORT, host: HOST });
     console.log(`[persona-qa/api] Server listening on http://${HOST}:${PORT}`);
-    console.log(`[persona-qa/api] WebSocket endpoint: ws://${HOST}:${PORT}/ws/runs/:runId`);
+    console.log(`[persona-qa/api] WebSocket endpoint: ws://${HOST}:${PORT}/ws/p2/sessions/:sessionId`);
     console.log(`[persona-qa/api] Health check: http://${HOST}:${PORT}/health`);
     console.log(`[persona-qa/api] Other requests need the token in ${tokenPath} (header x-agentic-token)`);
   } catch (err) {

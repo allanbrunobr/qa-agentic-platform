@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
@@ -9,11 +9,10 @@ import { SessionService } from '../services/session-service.js'
 import { parseExecutionContext, validateExecutionContext } from '../services/execution-context.js'
 import { ToolRegistry } from '../services/tool-registry.js'
 import { registerGeneratedAdapterTools } from '../tools/generated-adapter-tools.js'
-import { resolveFindingScreenshotPath } from '../../services/screenshot-path.js'
 
 // S-07: the QA browser followed absolute or protocol-relative route hints from the generated adapter
-// to any host, and targetBaseUrl accepted any URL scheme. S-08: the finding screenshot route read
-// any absolute path stored in the database. Both in docs/analise-20261109.md.
+// to any host, and targetBaseUrl accepted any URL scheme (docs/analise-20261109.md). The S-08 tests
+// left with the legacy finding screenshot route they covered (A-04).
 
 const BASE = 'http://127.0.0.1:4000'
 
@@ -114,39 +113,5 @@ describe('S-07: execution context accepts only http(s) targets', () => {
         else process.env[key] = saved[index]
       })
     }
-  })
-})
-
-describe('S-08: finding screenshots are served only from inside the project', () => {
-  let project = ''
-  let outside = ''
-
-  beforeAll(async () => {
-    project = await mkdtemp(path.join(tmpdir(), 'shot-project-'))
-    outside = await mkdtemp(path.join(tmpdir(), 'shot-outside-'))
-    await mkdir(path.join(project, 'test-results'), { recursive: true })
-    await writeFile(path.join(project, 'test-results', 'failure.png'), 'png')
-    await writeFile(path.join(project, 'test-results', 'notes.txt'), 'text')
-    await writeFile(path.join(outside, 'id_ed25519.png'), 'secret')
-    await symlink(path.join(outside, 'id_ed25519.png'), path.join(project, 'test-results', 'linked.png'))
-  })
-  afterAll(async () => {
-    await rm(project, { recursive: true, force: true })
-    await rm(outside, { recursive: true, force: true })
-  })
-
-  it('serves an image inside the project, given relative or absolute', async () => {
-    expect(await resolveFindingScreenshotPath(project, 'test-results/failure.png')).toMatch(/failure\.png$/)
-    expect(await resolveFindingScreenshotPath(project, path.join(project, 'test-results', 'failure.png'))).toMatch(/failure\.png$/)
-  })
-
-  it.each([
-    ['an absolute path outside the project', () => path.join(outside, 'id_ed25519.png')],
-    ['a relative path that climbs out', () => path.relative(project, path.join(outside, 'id_ed25519.png'))],
-    ['a symlink inside the project pointing out', () => 'test-results/linked.png'],
-    ['a non-image file', () => 'test-results/notes.txt'],
-    ['a missing file', () => 'test-results/missing.png'],
-  ])('refuses %s', async (_label, value) => {
-    expect(await resolveFindingScreenshotPath(project, value())).toBeNull()
   })
 })

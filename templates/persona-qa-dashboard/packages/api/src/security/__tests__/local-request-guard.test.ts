@@ -269,7 +269,7 @@ describe('local request guard: WebSocket upgrade', () => {
         ...headers,
       }
       const socket = connect(port, '127.0.0.1', () => {
-        socket.write(`GET /ws/runs/1 HTTP/1.1\r\n${Object.entries(lines).map(([key, value]) => `${key}: ${value}\r\n`).join('')}\r\n`)
+        socket.write(`GET /ws/p2/sessions/s1 HTTP/1.1\r\n${Object.entries(lines).map(([key, value]) => `${key}: ${value}\r\n`).join('')}\r\n`)
       })
       let received = ''
       let status = 0

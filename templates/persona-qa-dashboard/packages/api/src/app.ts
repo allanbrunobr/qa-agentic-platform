@@ -1,9 +1,6 @@
 import Fastify, { type FastifyServerOptions } from 'fastify';
 import cors from '@fastify/cors';
 import websocketPlugin from '@fastify/websocket';
-import { runsRoutes } from './routes/runs.js';
-import { scenariosRoutes } from './routes/scenarios.js';
-import { findingsRoutes } from './routes/findings.js';
 import { statsRoutes } from './routes/stats.js';
 import { settingsRoutes } from './routes/settings.js';
 import { wsRoutes } from './routes/ws.js';
@@ -70,9 +67,6 @@ export async function buildApp(options: BuildAppOptions) {
   });
 
   // Register all route handlers
-  await app.register(runsRoutes);
-  await app.register(scenariosRoutes);
-  await app.register(findingsRoutes);
   await app.register(statsRoutes);
   await app.register(settingsRoutes);
   await app.register(wsRoutes);
